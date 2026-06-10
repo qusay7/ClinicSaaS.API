@@ -71,10 +71,20 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("login")]
         public async Task<ActionResult<AuthResponseDto>> Login([FromBody] LoginDto dto)
         {
-            //1- البحث عن المستخدم في قاعدة البيانات بناءً على البريد الإلكتروني
+            if (string.IsNullOrWhiteSpace(dto.EmailOrUsername))
+                return BadRequest("البريد الإلكتروني أو اسم المستخدم مطلوب");
+            // ✅ ابحث بـ Email أو Username
+            var input = dto.EmailOrUsername.Trim().ToLower();
+
             var user = await _db.Users
-                .Include(u => u.Clinic) // جلب بيانات العيادة المرتبطة بالمستخدم
-                .FirstOrDefaultAsync(u => u.Email == dto.Email && u.IsActive);
+       .Include(u => u.Clinic)
+       .FirstOrDefaultAsync(u =>
+           u.IsActive &&
+           (u.Email.ToLower() == input ||
+            (u.Username != null && u.Username.ToLower() == input))
+       );
+
+
 
             //2- إذا لم يتم العثور على المستخدم، نرجع رسالة خطأ
             if (user == null)
@@ -83,6 +93,22 @@ namespace ClinicSaaS.API.Controllers
             //3- التحقق من كلمة المرور باستخدام BCrypt
             if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
                 return Unauthorized("Invalid email or password.");
+
+
+            // ✅ ربط RoleId تلقائياً إذا كان فارغاً
+            // بعد التحقق من كلمة المرور
+            // ✅ ربط RoleId تلقائياً
+            if (user.RoleId == null)
+            {
+                var role = await _db.Roles
+                    .FirstOrDefaultAsync(r => r.Name == user.Role);
+                if (role != null)
+                {
+                    user.RoleId = role.Id;
+                    await _db.SaveChangesAsync();
+                }
+            }
+
 
             //4- إذا كانت بيانات الاعتماد صحيحة، نولد رمز JWT يحتوي على معلومات المستخدم
             var token = _jwtService.GenerateToken(user);

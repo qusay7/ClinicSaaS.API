@@ -25,7 +25,6 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetAll()
         {
-            // ✅ فلتر العيادة
             var query = _db.Appointments.Where(a => !a.isdeleted);
 
             if (!_clinicContext.IsCompanyStaff)
@@ -34,19 +33,31 @@ namespace ClinicSaaS.API.Controllers
                     return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
 
                 query = query.Where(a => a.ClinicId == _clinicContext.ClinicId);
+
+                // ✅ الطبيب يرى مواعيده فقط
+                // ✅ استخدم UserId للبحث عن بطاقة الطبيب أولاً
+                if (_clinicContext.Role == "Doctor")
+                {
+                    var doctorRecord = await _db.Doctors
+                        .FirstOrDefaultAsync(d => d.UserId == _clinicContext.UserId
+                            && d.ClinicId == _clinicContext.ClinicId
+                            && !d.isdeleted);
+
+                    if (doctorRecord != null)
+                        query = query.Where(a => a.DoctorId == doctorRecord.Id);
+                    else
+                        return Ok(new List<AppointmentResponseDto>());
+                }
             }
 
             var appointments = await query
                 .OrderByDescending(a => a.AppointmentDate)
                 .Include(a => a.Patient)
-                    .Include(a => a.Doctor)  // ✅ أضف هذا
-
+                .Include(a => a.Doctor)
                 .ToListAsync();
 
-            var result = appointments.Select(a => ToResponse(a)).ToList();
-            return Ok(result);
+            return Ok(appointments.Select(a => ToResponse(a)).ToList());
         }
-
         // GET: api/appointments/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<AppointmentResponseDto>> GetById(Guid id)
@@ -64,7 +75,49 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(ToResponse(appointment));
         }
+        // GET: api/appointments/today-by-doctor
+        [HttpGet("today-by-doctor")]
+        public async Task<ActionResult> GetTodayByDoctor()
+        {
+            if (_clinicContext.ClinicId == null && !_clinicContext.IsSuperAdmin)
+                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
 
+            var today = DateTime.UtcNow.Date;
+            var tomorrow = today.AddDays(1);
+
+            var query = _db.Appointments
+                .Where(a => !a.isdeleted
+                    && a.AppointmentDate >= today
+                    && a.AppointmentDate < tomorrow
+                    && a.DoctorId != null);
+
+            if (!_clinicContext.IsCompanyStaff)
+                query = query.Where(a => a.ClinicId == _clinicContext.ClinicId);
+
+            var appointments = await query
+                .Include(a => a.Doctor)
+                .Include(a => a.Patient)
+                .ToListAsync();
+
+            // تجميع حسب الطبيب
+            var result = appointments
+                .GroupBy(a => a.DoctorId)
+                .Select(g => new {
+                    doctorId = g.Key,
+                    doctorName = g.First().Doctor?.FullName ?? "—",
+                    doctorSpecialty = g.First().Doctor?.Specialty ?? "",
+                    appointmentCount = g.Count(),
+                    appointments = g.Select(a => new {
+                        id = a.Id,
+                        patientName = a.Patient.FullName,
+                        time = a.AppointmentDate
+                    }).ToList()
+                })
+                .OrderByDescending(d => d.appointmentCount)
+                .ToList();
+
+            return Ok(result);
+        }
         // GET: api/appointments/patient/{patientId}
         [HttpGet("patient/{patientId}")]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetByPatient(Guid patientId)
@@ -99,14 +152,15 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost]
         public async Task<ActionResult<AppointmentResponseDto>> Create([FromBody] CreateAppointmentDto dto)
         {
-            // ✅ SuperAdmin لا يستطيع إضافة مواعيد مباشرة
+            if (!_clinicContext.HasPermission("appointments.create"))
+                return Forbid();
+
             if (_clinicContext.IsSuperAdmin)
-                return BadRequest("SuperAdmin لا يستطيع إضافة مواعيد");
+                return BadRequest("SuperAdmin لا يستطيع إضافة مواعيد مباشرة");
 
             if (_clinicContext.ClinicId == null)
                 return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
 
-            // ✅ تحقق أن المريض ينتمي لنفس العيادة
             var patient = await _db.Patients
                 .FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.isdeleted);
 
@@ -116,7 +170,65 @@ namespace ClinicSaaS.API.Controllers
             if (patient.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            if (dto.AppointmentDate <= DateTime.UtcNow)
+            // ✅ التحقق من جدول الدوام
+            if (dto.DoctorId.HasValue)
+            {
+                var dayOfWeek = dto.AppointmentDate.DayOfWeek;
+                var timeOfDay = TimeOnly.FromDateTime(dto.AppointmentDate);
+                var clinicId = _clinicContext.ClinicId.Value;
+
+                // 1 — تحقق أن العيادة مفتوحة
+                var clinicSchedule = await _db.ClinicSchedules
+                    .FirstOrDefaultAsync(s => s.ClinicId == clinicId
+                        && s.DayOfWeek == dayOfWeek
+                        && s.IsActive);
+
+                if (clinicSchedule == null)
+                    return BadRequest("العيادة مغلقة في هذا اليوم");
+
+                // 2 — تحقق أن الطبيب يعمل
+                var doctorSchedule = await _db.DoctorSchedules
+                    .FirstOrDefaultAsync(s => s.DoctorId == dto.DoctorId
+                        && s.DayOfWeek == dayOfWeek
+                        && s.IsActive);
+
+                if (doctorSchedule == null)
+                    return BadRequest("الطبيب لا يعمل في هذا اليوم");
+
+                // 3 — تحقق أن الوقت ضمن دوام الطبيب
+                if (timeOfDay < doctorSchedule.StartTime || timeOfDay >= doctorSchedule.EndTime)
+                    return BadRequest($"الوقت خارج دوام الطبيب ({doctorSchedule.StartTime} - {doctorSchedule.EndTime})");
+
+                // 4 — تحقق أن الموعد غير محجوز مسبقاً
+                var slotEnd = dto.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration);
+
+                var isConflict = await _db.Appointments
+                    .AnyAsync(a => a.DoctorId == dto.DoctorId
+                        && !a.isdeleted
+                        && a.Status != "cancelled"
+                        && a.AppointmentDate < slotEnd
+                        && a.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration) > dto.AppointmentDate);
+
+                if (isConflict)
+                    return BadRequest("هذا الموعد محجوز مسبقاً — اختر وقتاً آخر");
+
+                // 5 — تحديد السعر تلقائياً
+                if (dto.Price == null)
+                {
+                    // هل زار هذا المريض الطبيب من قبل؟
+                    var hasVisited = await _db.Appointments
+                        .AnyAsync(a => a.PatientId == dto.PatientId
+                            && a.DoctorId == dto.DoctorId
+                            && !a.isdeleted
+                            && a.Status == "completed");
+
+                    dto.Price = hasVisited
+                        ? doctorSchedule.FollowUpPrice
+                        : doctorSchedule.FirstVisitPrice;
+                }
+            }
+
+            if (dto.AppointmentDate <= DateTime.Now)
                 return BadRequest("تاريخ الموعد يجب أن يكون في المستقبل");
 
             var appointment = new Appointment
@@ -126,7 +238,7 @@ namespace ClinicSaaS.API.Controllers
                 isdeleted = false,
                 ClinicId = _clinicContext.ClinicId.Value,
                 PatientId = dto.PatientId,
-                DoctorId = dto.DoctorId, // ✅ بدلاً من DoctorName
+                DoctorId = dto.DoctorId,
                 AppointmentDate = dto.AppointmentDate,
                 Type = dto.Type,
                 Price = dto.Price,
@@ -140,6 +252,9 @@ namespace ClinicSaaS.API.Controllers
             await _db.SaveChangesAsync();
 
             await _db.Entry(appointment).Reference(a => a.Patient).LoadAsync();
+            if (appointment.DoctorId.HasValue)
+                await _db.Entry(appointment).Reference(a => a.Doctor).LoadAsync();
+
             return CreatedAtAction(nameof(GetById), new { id = appointment.Id }, ToResponse(appointment));
         }
 
@@ -147,6 +262,10 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult<AppointmentResponseDto>> Update(Guid id, [FromBody] UpdateAppointmentDto dto)
         {
+            if (!_clinicContext.HasPermission("appointments.edit"))
+                return Forbid();
+
+            // ✅ جلب الموعد أولاً
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
                 .FirstOrDefaultAsync(a => a.Id == id && !a.isdeleted);
@@ -158,6 +277,19 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
+            // ✅ Doctor يعدّل مواعيده فقط — بعد جلب الموعد
+            // ✅ يجب المقارنة بـ Doctor.Id وليس UserId
+            if (_clinicContext.Role == "Doctor")
+            {
+                var myDoctor = await _db.Doctors
+                    .FirstOrDefaultAsync(d => d.UserId == _clinicContext.UserId
+                        && d.ClinicId == _clinicContext.ClinicId
+                        && !d.isdeleted);
+
+                if (myDoctor == null || appointment.DoctorId != myDoctor.Id)
+                    return Forbid();
+            }
+
             if (dto.PatientId != appointment.PatientId)
             {
                 var patient = await _db.Patients
@@ -166,7 +298,6 @@ namespace ClinicSaaS.API.Controllers
                 if (patient == null)
                     return BadRequest("المريض غير موجود");
 
-                // ✅ تحقق أن المريض الجديد ينتمي لنفس العيادة
                 if (!_clinicContext.IsSuperAdmin && patient.ClinicId != _clinicContext.ClinicId)
                     return Forbid();
 
@@ -197,6 +328,9 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("{id}")]
         public async Task<ActionResult> Delete(Guid id)
         {
+            if (!_clinicContext.HasPermission("appointments.delete"))
+                return Forbid();
+
             var appointment = await _db.Appointments.FindAsync(id);
 
             if (appointment == null || appointment.isdeleted)

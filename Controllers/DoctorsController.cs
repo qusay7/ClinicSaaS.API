@@ -28,6 +28,10 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<DoctorResponseDto>>> GetAll()
         {
+            // ✅ تحقق من الصلاحية الديناميكية
+            if (!_clinicContext.HasPermission("doctors.view") && !_clinicContext.IsCompanyStaff)
+                return Forbid();
+
             var query = _db.Doctors.Where(d => !d.isdeleted);
 
             if (!_clinicContext.IsCompanyStaff)
@@ -39,12 +43,10 @@ namespace ClinicSaaS.API.Controllers
             }
 
             var doctors = await query
-                .Include(d => d.Clinic)
-                .OrderByDescending(d => d.CreatedAt)
+                .OrderBy(d => d.FullName)
                 .ToListAsync();
 
-            var result = doctors.Select(d => ToResponse(d)).ToList();
-            return Ok(result);
+            return Ok(doctors.Select(d => ToResponse(d)).ToList());
         }
 
         // GET: api/doctors/{id}
@@ -68,6 +70,9 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost]
         public async Task<ActionResult<DoctorResponseDto>> Create([FromBody] CreateDoctorDto dto)
         {
+            if (!_clinicContext.HasPermission("doctors.create"))
+                return Forbid();
+
             // ✅ تحقق أولاً قبل استخدام .Value
             if (_clinicContext.IsSuperAdmin)
                 return BadRequest("SuperAdmin لا يستطيع إضافة أطباء مباشرة");
@@ -82,7 +87,7 @@ namespace ClinicSaaS.API.Controllers
 
             if (string.IsNullOrWhiteSpace(dto.FullName))
                 return BadRequest("اسم الطبيب مطلوب");
-
+            
             var doctor = new Doctor
             {
                 Id = Guid.NewGuid(),
@@ -108,6 +113,9 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult<DoctorResponseDto>> Update(Guid id, [FromBody] CreateDoctorDto dto)
         {
+            if (!_clinicContext.HasPermission("doctors.edit"))
+                return Forbid();
+
             var doctor = await _db.Doctors
                 .Include(d => d.Clinic)
                 .FirstOrDefaultAsync(d => d.Id == id && !d.isdeleted);
@@ -158,6 +166,9 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("{id}")]
         public async Task<ActionResult> Delete(Guid id)
         {
+            if (!_clinicContext.HasPermission("doctors.delete"))
+                return Forbid();
+
             var doctor = await _db.Doctors.FindAsync(id);
 
             if (doctor == null || doctor.isdeleted)

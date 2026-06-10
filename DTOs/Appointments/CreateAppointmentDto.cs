@@ -1,6 +1,8 @@
 ﻿namespace ClinicSaaS.API.DTOs.Appointments
 {
-    // ما يُرسله المستخدم عند حجز موعد جديد
+    // ما يُرسله المستخدم عند حج
+    //
+    // ز موعد جديد
     // لاحظ: لا يوجد Id, CreatedAt, isdeleted — يحددها النظام تلقائياً
     public class CreateAppointmentDto
     {
@@ -13,4 +15,5 @@
         public string? Notes2 { get; set; }// ملاحظات إضافية (يمكن استخدامها لأي غرض)
         public string? Notes3 { get; set; }// ملاحظات إضافية أخرى (يمكن استخدامها لأي غرض)
     }
+
 }

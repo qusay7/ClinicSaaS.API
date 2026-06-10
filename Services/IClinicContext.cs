@@ -11,10 +11,12 @@
         bool IsSuperAdmin { get; }   // هل هو SuperAdmin؟
         bool IsCompanyStaff { get; }  // هل هو موظف في الشركة (SuperAdmin أو Admin)؟
         bool IsClinicUser { get; }// هل هو مستخدم عادي في العيادة (Doctor أو Receptionist)؟
-
-
+        List<string> Permissions { get; }           // ✅ أضف
+        bool HasPermission(string permission);       // ✅ أضف
 
 
 
     }
+
+
 }

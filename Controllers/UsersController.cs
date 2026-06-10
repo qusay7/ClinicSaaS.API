@@ -66,37 +66,40 @@ namespace ClinicSaaS.API.Controllers
         // POST: api/users
         // SuperAdmin → ينشئ أي مستخدم
         [HttpPost]
-        [Authorize(Roles = "SuperAdmin,ClinicStaff")] // ✅ أضف ClinicStaff
+        [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
         public async Task<ActionResult<UserResponseDto>> Create([FromBody] CreateUserDto dto)
         {
-            // في Create أضف قبل إنشاء المستخدم
             if (dto.ClinicId.HasValue)
             {
                 var (canAdd, error) = await _subscriptionService.CanAddUser(dto.ClinicId.Value);
-                if (!canAdd)
-                    return BadRequest(error);
+                if (!canAdd) return BadRequest(error);
             }
 
-            if (string.IsNullOrWhiteSpace(dto.FullName))
-                return BadRequest("Full name required");
-            if (string.IsNullOrWhiteSpace(dto.Email))
-                return BadRequest("Email is required");
-            if (string.IsNullOrWhiteSpace(dto.Password))
-                return BadRequest("Password required");
+            if (string.IsNullOrWhiteSpace(dto.FullName)) return BadRequest("Full name required");
+            if (string.IsNullOrWhiteSpace(dto.Email)) return BadRequest("Email is required");
+            if (string.IsNullOrWhiteSpace(dto.Password)) return BadRequest("Password required");
 
             var emailExists = await _db.Users.AnyAsync(u => u.Email == dto.Email);
-            if (emailExists)
-                return BadRequest("The email address is already in use.");
+            if (emailExists) return BadRequest("The email address is already in use.");
 
             var validRoles = new[] { "ClinicStaff", "ClinicAdmin", "Doctor", "Receptionist" };
 
             if (_clinicContext.Role == "ClinicStaff" && dto.Role == "ClinicStaff")
                 return Forbid();
 
+            // ✅ ClinicAdmin يضيف فقط Doctor و Receptionist
+            if (_clinicContext.Role == "ClinicAdmin")
+            {
+                var allowedRoles = new[] { "Doctor", "Receptionist" };
+                if (!allowedRoles.Contains(dto.Role))
+                    return BadRequest("يمكنك فقط إنشاء Doctor أو Receptionist");
+
+                dto.ClinicId = _clinicContext.ClinicId;
+            }
+
             if (!validRoles.Contains(dto.Role))
                 return BadRequest("دور غير صحيح");
 
-            // ✅ تحقق من العيادة
             if (!dto.ClinicId.HasValue)
                 return BadRequest("العيادة مطلوبة");
 
@@ -105,22 +108,53 @@ namespace ClinicSaaS.API.Controllers
             if (clinic == null)
                 return BadRequest("العيادة غير موجودة أو غير مفعّلة");
 
+            // ✅ تحقق أن Username غير مكرر
+            if (!string.IsNullOrWhiteSpace(dto.Username))
+            {
+                var usernameExists = await _db.Users
+                    .AnyAsync(u => u.Username == dto.Username.Trim());
+                if (usernameExists)
+                    return BadRequest("اسم المستخدم مستخدم مسبقاً");
+            }
+
             var user = new User
             {
                 Id = Guid.NewGuid(),
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true,
                 FullName = dto.FullName,
+                Username = dto.Username?.Trim(),  // ✅
                 Email = dto.Email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 Role = dto.Role,
                 ClinicId = dto.ClinicId
             };
 
+            
+
             _db.Users.Add(user);
             await _db.SaveChangesAsync();
-            await _db.Entry(user).Reference(u => u.Clinic).LoadAsync();
 
+            // ✅ إنشاء بطاقة طبيب تلقائياً
+            if (dto.Role == "Doctor" && dto.ClinicId.HasValue)
+            {
+                var doctor = new Doctor
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true,
+                    isdeleted = false,
+                    ClinicId = dto.ClinicId.Value,
+                    FullName = dto.FullName,
+                    Email = dto.Email,
+                    UserId = user.Id  // ✅ ربط مباشر
+
+                };
+                _db.Doctors.Add(doctor);
+                await _db.SaveChangesAsync();
+            }
+
+            await _db.Entry(user).Reference(u => u.Clinic).LoadAsync();
             return CreatedAtAction(nameof(GetAll), new { id = user.Id }, ToResponse(user));
         }
 
@@ -148,6 +182,40 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
+        // PATCH: api/users/profile
+        // تحديث بيانات الحساب الشخصي
+        [HttpPatch("profile")]
+        public async Task<ActionResult> UpdateProfile([FromBody] UpdateProfileDto dto)
+        {
+            var userId = _clinicContext.UserId;
+            var user = await _db.Users.FindAsync(userId);
+
+            if (user == null)
+                return NotFound();
+
+            // تحديث الاسم
+            if (!string.IsNullOrWhiteSpace(dto.FullName))
+                user.FullName = dto.FullName;
+
+            // تغيير كلمة المرور
+            if (!string.IsNullOrWhiteSpace(dto.NewPassword))
+            {
+                // تحقق من كلمة المرور الحالية
+                if (string.IsNullOrWhiteSpace(dto.CurrentPassword))
+                    return BadRequest("كلمة المرور الحالية مطلوبة");
+
+                if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+                    return BadRequest("كلمة المرور الحالية غير صحيحة");
+
+                if (dto.NewPassword.Length < 6)
+                    return BadRequest("كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل");
+
+                user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = "تم تحديث البيانات بنجاح" });
+        }
         // دالة مساعدة
         private static UserResponseDto ToResponse(User u) => new UserResponseDto
         {

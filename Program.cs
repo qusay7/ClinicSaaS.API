@@ -93,8 +93,7 @@ builder.Services.AddCors(options =>
             "https://127.0.0.1:5173"          // ✅ أضف هذا (اختياري)
         )
         .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials();  // ✅ أضف هذا إذا كنت تستخدم المصادقة
+        .AllowAnyMethod();
     });
 });
 
