@@ -135,6 +135,18 @@ namespace ClinicSaaS.API.Controllers
             return Ok(ToResponse(clinic));
         }
 
+        // PATCH: api/clinics/{id}/toggle
+        [HttpPatch("{id}/toggle")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult> Toggle(Guid id)
+        {
+            var clinic = await _db.Clinics.FindAsync(id);
+            if (clinic == null) return NotFound();
+
+            clinic.IsActive = !clinic.IsActive;
+            await _db.SaveChangesAsync();
+            return Ok(new { clinic.IsActive });
+        }
         // دالة مساعدة
         private static ClinicResponseDto ToResponse(Clinic c) => new ClinicResponseDto
             {
