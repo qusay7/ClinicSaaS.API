@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using ClinicSaaS.API.Data.ClinicSaaS.API.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace ClinicSaaS.API.Data
 {
@@ -26,61 +27,98 @@ namespace ClinicSaaS.API.Data
         public DbSet<RolePermission> RolePermissions { get; set; }// إضافة جدول ربط الأدوار بالصلاحيات
         public DbSet<Department> Departments { get; set; }
         public DbSet<DepartmentRole> DepartmentRoles { get; set; }
+        public DbSet<QueueEntry> QueueEntries { get; set; }
+        public DbSet<VisitNote> VisitNotes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            // ✅ Department — Unique Name per Clinic
-            modelBuilder.Entity<Department>()
-                .HasIndex(d => new { d.ClinicId, d.Name })
-                .IsUnique();
+            base.OnModelCreating(modelBuilder);
 
-            // ✅ DepartmentRole — Unique Role per Department
-            modelBuilder.Entity<DepartmentRole>()
-                .HasIndex(dr => new { dr.DepartmentId, dr.RoleId })
-                .IsUnique();
+            // ✅ Appointments
+            modelBuilder.Entity<Appointment>()
+                .HasOne(a => a.Patient)
+                .WithMany(p => p.Appointments)
+                .HasForeignKey(a => a.PatientId)
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // ✅ RolePermission — مرن (ClinicId nullable)
-            modelBuilder.Entity<RolePermission>()
-                .HasIndex(rp => new { rp.RoleId, rp.PermissionId, rp.ClinicId })
-                .IsUnique();
+            modelBuilder.Entity<Appointment>()
+                .HasOne(a => a.Doctor)
+                .WithMany(d => d.Appointments)
+                .HasForeignKey(a => a.DoctorId)
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // ✅ Role — ClinicId و DepartmentId nullable
-            modelBuilder.Entity<Role>()
-                .HasOne<Clinic>()
-                .WithMany()
-                .HasForeignKey(r => r.ClinicId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<Appointment>()
+                .HasOne(a => a.Clinic)
+                .WithMany(c => c.Appointments)
+                .HasForeignKey(a => a.ClinicId)
+                .OnDelete(DeleteBehavior.NoAction);
 
-            modelBuilder.Entity<Role>()
-                .HasOne<Department>()
-                .WithMany()
-                .HasForeignKey(r => r.DepartmentId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.Restrict);
+          
 
-            // ✅ User → Role (اسمه UserRole لتجنب التعارض)
-            modelBuilder.Entity<User>()
-                .HasOne(u => u.UserRole)
-                .WithMany()
-                .HasForeignKey(u => u.RoleId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.SetNull);
+            modelBuilder.Entity<Doctor>()
+                .HasOne(d => d.Clinic)
+                .WithMany(c => c.Doctors)
+                .HasForeignKey(d => d.ClinicId)
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // ✅ Doctor → Department
+            // ✅ Doctors - Department (صريح ومحدد)
             modelBuilder.Entity<Doctor>()
                 .HasOne(d => d.Department)
-                .WithMany(dep => dep.Doctors)
+                .WithMany(dep => dep.Doctors)  // ✅ حدد الـ collection بشكل صريح
                 .HasForeignKey(d => d.DepartmentId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.SetNull);
-            // ✅ Username فريد
-            modelBuilder.Entity<User>()
-                .HasIndex(u => u.Username)
-                .IsUnique()
-                .HasFilter("\"Username\" IS NOT NULL");
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // ✅ QueueEntries
+            modelBuilder.Entity<QueueEntry>()
+                .HasOne(q => q.Clinic)
+                .WithMany()
+                .HasForeignKey(q => q.ClinicId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<QueueEntry>()
+                .HasOne(q => q.Patient)
+                .WithMany()
+                .HasForeignKey(q => q.PatientId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<QueueEntry>()
+                .HasOne(q => q.Doctor)
+                .WithMany()
+                .HasForeignKey(q => q.DoctorId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<VisitNote>()
+    .HasOne(v => v.Clinic)
+    .WithMany()
+    .HasForeignKey(v => v.ClinicId)
+    .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<VisitNote>()
+                .HasOne(v => v.Patient)
+                .WithMany()
+                .HasForeignKey(v => v.PatientId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<VisitNote>()
+                .HasOne(v => v.Doctor)
+                .WithMany()
+                .HasForeignKey(v => v.DoctorId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<VisitNote>()
+                .HasOne(v => v.Appointment)
+                .WithMany()
+                .HasForeignKey(v => v.AppointmentId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<VisitNote>()
+                .HasOne(v => v.QueueEntry)
+                .WithMany()
+                .HasForeignKey(v => v.QueueEntryId)
+                .OnDelete(DeleteBehavior.NoAction);
         }
     }
+
     //جدول البيانات (Entities) تمثل الجداول في قاعدة البيانات. هذا الكلاس يمثل جدول المرضى.
     public class Patient
     {
@@ -147,6 +185,11 @@ namespace ClinicSaaS.API.Data
 
         public Guid ClinicId { get; set; }          // ربط الموعد بالعيادة
         public Clinic Clinic { get; set; } = default!;// خاصية Navigation لربط الموعد بالعيادة
+
+        // أضف في Appointment class
+        public DateTime? CheckInTime { get; set; }   // وقت دخول المريض
+        public DateTime? CheckOutTime { get; set; }  // وقت خروج المريض
+
     }
 
     // جدول العيادات
@@ -171,7 +214,7 @@ namespace ClinicSaaS.API.Data
 
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
+        public string TimeZone { get; set; } = "Jordan Standard Time";
         // علاقة — كل عيادة لها مستخدمون
         public ICollection<User> Users { get; set; } = new List<User>();
         // علاقة — كل عيادة لها مرضى
@@ -203,7 +246,10 @@ namespace ClinicSaaS.API.Data
             public Clinic? Clinic { get; set; }
             public Guid? RoleId { get; set; }
             public Role? UserRole { get; set; }
-            public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+            public Guid? DepartmentId { get; set; }
+            public Department? Department { get; set; }
+        public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+
         }
     
 
@@ -232,6 +278,9 @@ namespace ClinicSaaS.API.Data
 
         public Guid? DepartmentId { get; set; }  // ✅ أضف
         public Department? Department { get; set; }
+
+        // ✅ appointments / queue / both
+        public string WorkType { get; set; } = "appointments";
     }
 
     // جدول الخطط (Subscription Plans)
@@ -315,12 +364,6 @@ namespace ClinicSaaS.API.Data
         public decimal? FollowUpPrice { get; set; }    // سعر المتابعة
     }
 
- 
- 
- 
-    ////////////
-    ///
-
     // Department
     public class Department
     {
@@ -331,7 +374,7 @@ namespace ClinicSaaS.API.Data
         public string? SettingsJson { get; set; }  // JSON مرن
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; }
-
+        public string? NameEn { get; set; }
         // Navigation
         public Clinic Clinic { get; set; } = null!;
         public ICollection<Doctor> Doctors { get; set; } = new List<Doctor>();
@@ -359,7 +402,7 @@ namespace ClinicSaaS.API.Data
         public string? Description { get; set; }  // ✅ أضف
         public bool IsActive { get; set; } = true; // ✅ أضف
         public bool IsSystem { get; set; }
-
+        public string? NameEn { get; set; }
         public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
     }
 
@@ -397,8 +440,56 @@ namespace ClinicSaaS.API.Data
         public Department Department { get; set; } = null!;
         public Role Role { get; set; } = null!;
     }
+    // جدول الانتظار (Queue)
+    public class QueueEntry
+    {
+        public Guid Id { get; set; }// معرف فريد لكل دخول في قائمة الانتظار
+        public Guid ClinicId { get; set; }// ربط دخول قائمة الانتظار بالعيادة
+        public Clinic Clinic { get; set; } = default!;// خاصية Navigation لربط دخول قائمة الانتظار بالعيادة
 
+        public Guid PatientId { get; set; }// ربط دخول قائمة الانتظار بالمريض
+        public Patient Patient { get; set; } = default!;// خاصية Navigation لربط دخول قائمة الانتظار بالمريض
 
+        public Guid? DoctorId { get; set; }// ربط دخول قائمة الانتظار بالطبيب (اختياري)
+        public Doctor? Doctor { get; set; }// خاصية Navigation لربط دخول قائمة الانتظار بالطبيب
+
+        public int QueueNumber { get; set; }      // رقم الدور
+        public DateTime Date { get; set; }         // تاريخ اليوم
+        public string Status { get; set; } = "waiting"; // waiting / called / completed / cancelled
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+    }
+
+    namespace ClinicSaaS.API.Data
+    {
+        public class VisitNote
+        {
+            public Guid Id { get; set; }
+            public Guid ClinicId { get; set; }
+            public Guid PatientId { get; set; }
+            public Guid? AppointmentId { get; set; }  // موعد
+            public Guid? QueueEntryId { get; set; }   // دور
+            public Guid? DoctorId { get; set; }
+
+            public string? Diagnosis { get; set; }        // التشخيص
+            public string? Prescription { get; set; }     // الأدوية
+            public string? Tests { get; set; }            // الفحوصات
+            public string? Notes { get; set; }            // ملاحظات
+            public DateTime? NextVisitDate { get; set; }  // الزيارة القادمة
+            public decimal? Cost { get; set; }            // التكلفة
+
+            public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+            public bool IsDeleted { get; set; } = false;
+
+            // Navigation
+            public Clinic? Clinic { get; set; }
+            public Patient? Patient { get; set; }
+            public Doctor? Doctor { get; set; }
+            public Appointment? Appointment { get; set; }
+            public QueueEntry? QueueEntry { get; set; }
+        }
+    }
 
 
 }

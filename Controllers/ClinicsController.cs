@@ -60,53 +60,72 @@ namespace ClinicSaaS.API.Controllers
 
         //post: api/clinics
         // SuperAdmin فقط — إنشاء عيادة جديدة
+ 
         [HttpPost]
-            [Authorize(Roles = "SuperAdmin")]
-            public async Task<ActionResult<ClinicResponseDto>> Create([FromBody] CreateClinicDto dto)
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult<ClinicResponseDto>> Create([FromBody] CreateClinicDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return BadRequest("Clinic name is required.");
 
+            var subdomainExists = await _db.Clinics
+                .AnyAsync(c => c.Subdomain == dto.subDomain);
+            if (subdomainExists)
+                return BadRequest("Subdomain already exists.");
+
+            var clinic = new Clinic
             {
-                //تحقق أن الاسم غير فارغ
+                Id = Guid.NewGuid(),
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true,
+                Name = dto.Name,
+                Subdomain = dto.subDomain,
+                Logo = dto.Logo,
+                Address = dto.Address,
+                Phone = dto.Phone,
+                Website = dto.website,
+                Email = dto.Email,
+                OwnerName = dto.OwnerName,
+                OwnerEmail = dto.OwnerEmail,
+                OwnerPhone = dto.OwnerPhone,
+                TaxNumber = dto.TaxNumber,
+                SourceNumber = dto.CommercialRegister,
+                InvoiceId = dto.InvoiceId,
+                InvoiceKey = dto.InvoiceKey,
+                Description = dto.Description
+            };
+            _db.Clinics.Add(clinic);
+            await _db.SaveChangesAsync();
 
-                if (string.IsNullOrWhiteSpace(dto.Name))
-                    return BadRequest("Clinic name is required.");
+            // ✅ إنشاء الأقسام الافتراضية تلقائياً
+            var defaultDepartments = new[]
+            {
+        "الاستقبال", "الأسنان", "الأطفال", "العيون",
+        "المحاسبة", "الإدارة", "المختبر", "الأشعة",
+        "تمريض", "صيدله"
 
-                // تحقق أن Subdomain غير مكرر
-                var subdomainExists = await _db.Clinics
-                    .AnyAsync(c => c.Subdomain == dto.subDomain);
+    };
 
-                if (subdomainExists)
-                    return BadRequest("Subdomain already exists.");
-
-                var clinic = new Clinic
+            foreach (var name in defaultDepartments)
+            {
+                _db.Departments.Add(new Department
                 {
                     Id = Guid.NewGuid(),
-                    CreatedAt = DateTime.UtcNow,
+                    Name = name,
+                    ClinicId = clinic.Id,
                     IsActive = true,
-                    Name = dto.Name,
-                    Subdomain = dto.subDomain,
-                    Logo = dto.Logo,
-                    Address = dto.Address,
-                    Phone = dto.Phone,
-                    Website = dto.website,
-                    Email = dto.Email,
-                    OwnerName = dto.OwnerName,
-                    OwnerEmail = dto.OwnerEmail,
-                    OwnerPhone = dto.OwnerPhone,
-                    TaxNumber = dto.TaxNumber,
-                    SourceNumber = dto.CommercialRegister,
-                    InvoiceId = dto.InvoiceId,
-                    InvoiceKey = dto.InvoiceKey,
-                    Description = dto.Description
-                };
-                _db.Clinics.Add(clinic);
-                await _db.SaveChangesAsync();
-                return CreatedAtAction(nameof(GetById), new { id = clinic.Id }, ToResponse(clinic));
+                    CreatedAt = DateTime.UtcNow,
+                });
             }
+            await _db.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetById), new { id = clinic.Id }, ToResponse(clinic));
+        }
 
 
         // PUT: api/clinics/{id}
 
-       [HttpPut("{id}")]
+        [HttpPut("{id}")]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
         public async Task<ActionResult<ClinicResponseDto>> Update(Guid id, [FromBody] UpdateClinicDto dto)
         {

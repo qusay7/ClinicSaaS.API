@@ -25,13 +25,14 @@ namespace ClinicSaaS.API.Services
         public async Task<(bool CanAdd, string? Error)> CanAddUser(Guid clinicId)
         {
             var subscription = await GetActiveSubscription(clinicId);
+
+            // ✅ بدون اشتراك — اسمح (للعيادات الجديدة)
             if (subscription == null)
-                return (false, "لا يوجد اشتراك نشط لهذه العيادة.");
+                return (true, null);
 
             if (subscription.EndDate < DateTime.UtcNow)
                 return (false, "انتهت صلاحية الاشتراك");
 
-            // -1 يعني غير محدود
             if (subscription.Plan.MaxUsers == -1)
                 return (true, null);
 

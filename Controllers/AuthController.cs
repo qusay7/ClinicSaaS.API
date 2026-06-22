@@ -216,7 +216,63 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { message = "تم تسجيل الخروج بنجاح" });
         }
 
+        // POST: api/auth/seed-permissions
+        [HttpPost("seed-permissions")]
+        public async Task<ActionResult> SeedPermissions()
+        {
+            var permissions = new[]
+            {
+        // Patients
+        new { Name = "patients.view",   Module = "patients", DisplayName = "عرض المرضى",       Group = "المرضى" },
+        new { Name = "patients.create", Module = "patients", DisplayName = "إضافة مريض",       Group = "المرضى" },
+        new { Name = "patients.edit",   Module = "patients", DisplayName = "تعديل مريض",       Group = "المرضى" },
+        new { Name = "patients.delete", Module = "patients", DisplayName = "حذف مريض",         Group = "المرضى" },
+        // Doctors
+        new { Name = "doctors.view",    Module = "doctors",  DisplayName = "عرض الأطباء",      Group = "الأطباء" },
+        new { Name = "doctors.create",  Module = "doctors",  DisplayName = "إضافة طبيب",       Group = "الأطباء" },
+        new { Name = "doctors.edit",    Module = "doctors",  DisplayName = "تعديل طبيب",       Group = "الأطباء" },
+        new { Name = "doctors.delete",  Module = "doctors",  DisplayName = "حذف طبيب",         Group = "الأطباء" },
+        // Appointments
+        new { Name = "appointments.view",   Module = "appointments", DisplayName = "عرض المواعيد",  Group = "المواعيد" },
+        new { Name = "appointments.create", Module = "appointments", DisplayName = "إضافة موعد",    Group = "المواعيد" },
+        new { Name = "appointments.edit",   Module = "appointments", DisplayName = "تعديل موعد",    Group = "المواعيد" },
+        new { Name = "appointments.delete", Module = "appointments", DisplayName = "حذف موعد",      Group = "المواعيد" },
+        // Schedules
+        new { Name = "schedules.view",   Module = "schedules", DisplayName = "عرض الجداول",    Group = "الجداول" },
+        new { Name = "schedules.manage", Module = "schedules", DisplayName = "إدارة الجداول",  Group = "الجداول" },
+        // Users
+        new { Name = "users.view",   Module = "users", DisplayName = "عرض المستخدمين",        Group = "المستخدمون" },
+        new { Name = "users.create", Module = "users", DisplayName = "إضافة مستخدم",          Group = "المستخدمون" },
+        // Departments
+        new { Name = "departments.manage", Module = "departments", DisplayName = "إدارة الأقسام", Group = "الأقسام" },
+        // Settings
+        new { Name = "settings.view", Module = "settings", DisplayName = "عرض الإعدادات",     Group = "الإعدادات" },
+        new { Name = "settings.edit", Module = "settings", DisplayName = "تعديل الإعدادات",   Group = "الإعدادات" },
+        // Reports
+        new { Name = "reports.view", Module = "reports", DisplayName = "عرض التقارير",        Group = "التقارير" },
+    };
 
+            int added = 0;
+            foreach (var p in permissions)
+            {
+                var exists = await _db.Permissions.AnyAsync(x => x.Name == p.Name);
+                if (!exists)
+                {
+                    _db.Permissions.Add(new Permission
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = p.Name,
+                        Module = p.Module,
+                        DisplayName = p.DisplayName,
+                        Group = p.Group,
+                        IsActive = true,
+                    });
+                    added++;
+                }
+            }
+            await _db.SaveChangesAsync();
+            return Ok($"تم إنشاء {added} صلاحية بنجاح");
+        }
 
 
 

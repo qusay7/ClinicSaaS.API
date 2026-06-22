@@ -2,6 +2,7 @@
 {
     public class SubscriptionResponseDto
     {
+
         public Guid Id { get; set; }// معرف الاشتراك
         public Guid ClinicId { get; set; }// ربط الاشتراك بالعيادة — Foreign Key
         public string ClinicName { get; set; } = default!;// اسم العيادة (لراحة العميل، لا يحتاج لطلب بيانات العيادة بشكل منفصل)

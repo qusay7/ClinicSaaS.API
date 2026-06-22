@@ -296,16 +296,21 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet("available-slots")]
         public async Task<ActionResult> GetAvailableSlots(
             [FromQuery] Guid doctorId,
-            [FromQuery] DateTime date)
+            [FromQuery] string date) // ✅ string بدل DateTime
         {
+            // ✅ حوّل التاريخ بدون Timezone
+            if (!DateOnly.TryParse(date, out var dateOnly))
+                return BadRequest("تاريخ غير صحيح");
+
+            var dateValue = dateOnly.ToDateTime(TimeOnly.MinValue); // Unspecified — لا تحويل
+            var dayOfWeek = dateValue.DayOfWeek; // ✅ الآن صحيح 100%
+
             var doctor = await _db.Doctors.FindAsync(doctorId);
             if (doctor == null || doctor.isdeleted)
                 return NotFound("الطبيب غير موجود");
 
             if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
-
-            var dayOfWeek = date.DayOfWeek;
 
             // 1 — تحقق أن العيادة مفتوحة
             var clinicSchedule = await _db.ClinicSchedules
@@ -326,9 +331,15 @@ namespace ClinicSaaS.API.Controllers
                 return Ok(new { available = false, reason = "الطبيب لا يعمل في هذا اليوم", slots = new List<object>() });
 
             // 3 — جلب المواعيد المحجوزة في هذا اليوم
-            var startOfDay = date.Date;
+            var startOfDay = dateValue.Date;
             var endOfDay = startOfDay.AddDays(1);
 
+           
+            var slots = new List<object>();
+            var current = dateValue.Date.Add(doctorSchedule.StartTime.ToTimeSpan());
+            var end = dateValue.Date.Add(doctorSchedule.EndTime.ToTimeSpan());
+
+            // 3 — جلب المواعيد المحجوزة
             var bookedSlots = await _db.Appointments
                 .Where(a => a.DoctorId == doctorId
                     && !a.isdeleted
@@ -338,25 +349,27 @@ namespace ClinicSaaS.API.Controllers
                 .Select(a => a.AppointmentDate)
                 .ToListAsync();
 
-            // 4 — توليد المواعيد المتاحة
-            var slots = new List<object>();
-            var current = date.Date
-                .Add(doctorSchedule.StartTime.ToTimeSpan());
-            var end = date.Date
-                .Add(doctorSchedule.EndTime.ToTimeSpan());
+            // ✅ بدون تحويل timezone
+            var bookedTimes = new HashSet<string>(
+                bookedSlots.Select(b => b.ToString("HH:mm"))
+            );
 
+
+            // 4 — توليد المواعيد
             while (current.AddMinutes(doctorSchedule.SlotDuration) <= end)
             {
-                var isBooked = bookedSlots.Any(b =>
-                    b >= current &&
-                    b < current.AddMinutes(doctorSchedule.SlotDuration));
+                var timeStr = current.ToString("HH:mm");
+
+                // ✅ قارن بالوقت فقط
+                var isBooked = bookedTimes.Contains(timeStr);
 
                 slots.Add(new
                 {
-                    time = current.ToString("HH:mm"),
-                    dateTime = current,
-                    isBooked = isBooked,
-                    isAvailable = !isBooked && current > DateTime.Now
+                    time = timeStr,
+                    dateTime = current.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    isBooked,
+                   // isAvailable = !isBooked && current > DateTime.Now
+                    isAvailable = !isBooked && current > TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Amman"))
                 });
 
                 current = current.AddMinutes(doctorSchedule.SlotDuration);
@@ -365,7 +378,7 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new
             {
                 available = true,
-                date = date.ToString("yyyy-MM-dd"),
+                date = dateOnly.ToString("yyyy-MM-dd"),
                 doctorName = doctor.FullName,
                 workStart = doctorSchedule.StartTime.ToString("HH:mm"),
                 workEnd = doctorSchedule.EndTime.ToString("HH:mm"),
@@ -374,7 +387,7 @@ namespace ClinicSaaS.API.Controllers
                 followUpPrice = doctorSchedule.FollowUpPrice,
                 totalSlots = slots.Count,
                 availableSlots = slots.Count(s => (bool)s.GetType().GetProperty("isAvailable")!.GetValue(s)!),
-                slots = slots
+                slots
             });
         }
 

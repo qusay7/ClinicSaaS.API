@@ -4,6 +4,7 @@ using ClinicSaaS.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicSaaS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260622063450_AddDoctorWorkType")]
+    partial class AddDoctorWorkType
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -303,6 +306,9 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("DepartmentId1")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Email")
                         .HasColumnType("nvarchar(max)");
 
@@ -325,10 +331,6 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("WorkType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<bool>("isdeleted")
                         .HasColumnType("bit");
 
@@ -337,6 +339,8 @@ namespace ClinicSaaS.API.Migrations
                     b.HasIndex("ClinicId");
 
                     b.HasIndex("DepartmentId");
+
+                    b.HasIndex("DepartmentId1");
 
                     b.HasIndex("UserId");
 
@@ -869,9 +873,13 @@ namespace ClinicSaaS.API.Migrations
                         .IsRequired();
 
                     b.HasOne("ClinicSaaS.API.Data.Department", "Department")
-                        .WithMany("Doctors")
+                        .WithMany()
                         .HasForeignKey("DepartmentId")
                         .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("ClinicSaaS.API.Data.Department", null)
+                        .WithMany("Doctors")
+                        .HasForeignKey("DepartmentId1");
 
                     b.HasOne("ClinicSaaS.API.Data.User", "User")
                         .WithMany()

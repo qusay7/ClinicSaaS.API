@@ -4,21 +4,21 @@
     // لاحظ: أضفنا PatientName لعرضه مباشرة بدون طلب إضافي
     public class AppointmentResponseDto
     {
-        public Guid Id { get; set; }// معرف الموعد
-        public Guid PatientId { get; set; }// معرف المريض (لربط الموعد بالمريض)
-        public string PatientName { get; set; } = null!;// اسم المريض (للعرض فقط)
+        public Guid Id { get; set; }
+        public Guid PatientId { get; set; }
+        public string PatientName { get; set; } = default!; // اسم المريض مباشرة
         public int PatientNumber { get; set; }              // رقم المريض
-        public DateTime AppointmentDate { get; set; }// تاريخ ووقت الموعد
-        public Guid? DoctorId { get; set; }    // ✅ أضف
-        public string? Type { get; set; }  // ✅ أضف هذا
-        public string? DoctorName { get; set; } // ✅ يبقى للعرض        public string? Type { get; set; }// نوع الموعد
-        public decimal? Price { get; set; }// سعر الموعد
-        public string Status { get; set; } = null!;// حالة الموعد
-        public string? Notes { get; set; }// ملاحظات عامة عن الموعد
-        public string? Notes2 { get; set; }// ملاحظات إضافية
-        public string? Notes3 { get; set; }// ملاحظات إضافية أخرى
-        public DateTime CreatedAt { get; set; }// تاريخ إنشاء الموعد
+        public DateTime AppointmentDate { get; set; }
+        public Guid? DoctorId { get; set; }
+        public string? DoctorName { get; set; }
+        public string? Type { get; set; }
+        public decimal? Price { get; set; }
+        public string Status { get; set; } = default!;
+        public string? Notes { get; set; }
+        public string? Notes2 { get; set; }
+        public string? Notes3 { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? CheckInTime { get; set; }   // ✅ وقت الدخول
+        public DateTime? CheckOutTime { get; set; }  // ✅ وقت الخروج
     }
 }
-
-

@@ -123,5 +123,51 @@ namespace ClinicSaaS.API.Controllers
             await _db.SaveChangesAsync();
             return NoContent();
         }
+
+        // POST: api/departments/seed-defaults/{clinicId}
+        [HttpPost("seed-defaults/{clinicId}")]
+        [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
+        public async Task<ActionResult> SeedDefaultDepartments(Guid clinicId)
+        {
+            var clinic = await _db.Clinics.FindAsync(clinicId);
+            if (clinic == null) return NotFound("العيادة غير موجودة");
+
+            var defaultDepartments = new[]
+{
+    new { Name = "الاستقبال", NameEn = "Reception" },
+    new { Name = "الأسنان",   NameEn = "Dentistry" },
+    new { Name = "الأطفال",   NameEn = "Pediatrics" },
+    new { Name = "العيون",    NameEn = "Ophthalmology" },
+    new { Name = "المحاسبة",  NameEn = "Accounting" },
+    new { Name = "الإدارة",   NameEn = "Administration" },
+    new { Name = "المختبر",   NameEn = "Laboratory" },
+    new { Name = "الأشعة",    NameEn = "Radiology" },
+    new { Name = "تمريض",     NameEn = "Nursing" },
+    new { Name = "صيدله",     NameEn = "Pharmacy" },
+};
+
+            int added = 0;
+
+            foreach (var dept in defaultDepartments)
+            {
+                var exists = await _db.Departments
+                    .AnyAsync(d => d.Name == dept.Name && d.ClinicId == clinicId);
+                if (exists) continue;
+
+                _db.Departments.Add(new Department
+                {
+                    Id = Guid.NewGuid(),
+                    Name = dept.Name,
+                    NameEn = dept.NameEn, // ✅
+                    ClinicId = clinicId,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                });
+                added++;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = $"تم إنشاء {added} قسم" });
+        }
     }
 }

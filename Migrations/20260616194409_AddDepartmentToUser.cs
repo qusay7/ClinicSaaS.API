@@ -5,7 +5,7 @@
 namespace ClinicSaaS.API.Migrations
 {
     /// <inheritdoc />
-    public partial class DefaultFlagsForPatient : Migration
+    public partial class AddDepartmentToUser : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

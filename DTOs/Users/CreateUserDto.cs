@@ -7,6 +7,7 @@
         public string Email { get; set; } = default!;
         public string Password { get; set; } = default!;
         public string Role { get; set; } = default!;
+        public Guid? DepartmentId { get; set; }
         public Guid? ClinicId { get; set; }
     }
 }

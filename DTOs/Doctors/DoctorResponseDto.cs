@@ -12,5 +12,8 @@
         public Guid ClinicId { get; set; }
         public string? ClinicName { get; set; }
         public DateTime CreatedAt { get; set; }
+        public Guid? DepartmentId { get; set; }        // ✅
+        public string? DepartmentName { get; set; }    // ✅ اسم القسم
+        public string WorkType { get; set; } = "both"; // ✅
     }
 }

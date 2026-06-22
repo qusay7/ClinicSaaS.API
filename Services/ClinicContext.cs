@@ -35,38 +35,42 @@ namespace ClinicSaaS.API.Services
                 ClinicId = clinicId;
 
             // ✅ تحميل الصلاحيات من DB
+            // ✅ تحميل الصلاحيات من DB بشكل صحيح
             if (UserId.HasValue && !IsSuperAdmin)
             {
-                var dbUser = db.Users
-                    .Include(u => u.UserRole)
-                    .FirstOrDefault(u => u.Id == UserId.Value);
-
-                if (dbUser?.RoleId != null && ClinicId.HasValue)
+                try
                 {
-                    // ✅ أولاً — صلاحيات خاصة بالعيادة
-                    var clinicPerms = db.RolePermissions
-                        .Include(rp => rp.Permission)
-                        .Where(rp => rp.RoleId == dbUser.RoleId
-                            && rp.ClinicId == ClinicId)
-                        .Select(rp => rp.Permission.Name)
-                        .ToList();
+                    var dbUser = db.Users
+                        .AsNoTracking()  // ✅ أسرع — لا نحتاج tracking
+                        .FirstOrDefault(u => u.Id == UserId.Value);
 
-                    if (clinicPerms.Any())
+                    if (dbUser?.RoleId != null && ClinicId.HasValue)
                     {
-                        Permissions = clinicPerms;
-                    }
-                    else
-                    {
-                        // ✅ ثانياً — الصلاحيات الافتراضية
-                        var defaultPerms = db.RolePermissions
+                        // ✅ query واحد بدل اثنين
+                        var perms = db.RolePermissions
+                            .AsNoTracking()
                             .Include(rp => rp.Permission)
                             .Where(rp => rp.RoleId == dbUser.RoleId
-                                && rp.ClinicId == null)
+                                && (rp.ClinicId == ClinicId || rp.ClinicId == null))
+                            .ToList();
+
+                        // ✅ أولاً خاصة بالعيادة، وإلا الافتراضية
+                        var clinicPerms = perms
+                            .Where(rp => rp.ClinicId == ClinicId)
                             .Select(rp => rp.Permission.Name)
                             .ToList();
 
-                        Permissions = defaultPerms;
+                        Permissions = clinicPerms.Any()
+                            ? clinicPerms
+                            : perms.Where(rp => rp.ClinicId == null)
+                                   .Select(rp => rp.Permission.Name)
+                                   .ToList();
                     }
+                }
+                catch (Exception ex)
+                {
+                    // ✅ لا تفشل الـ request بسبب خطأ في الصلاحيات
+                    Console.WriteLine($"ClinicContext error: {ex.Message}");
                 }
             }
         }
