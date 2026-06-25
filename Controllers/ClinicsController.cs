@@ -57,10 +57,31 @@ namespace ClinicSaaS.API.Controllers
             return Ok(ToResponse(clinic));
         }
 
+        // GET: api/clinics/by-subdomain/{subdomain}
+        [HttpGet("by-subdomain/{subdomain}")]
+        [AllowAnonymous]
+        public async Task<ActionResult> GetBySubdomain(string subdomain)
+        {
+            if (subdomain.ToLower() == "admin")
+                return Ok(new { name = "Cura Admin", logo = (string?)null, isAdmin = true });
 
+            var clinic = await _db.Clinics
+                .FirstOrDefaultAsync(c => c.Subdomain == subdomain && c.IsActive);
+
+            if (clinic == null)
+                return NotFound(new { message = "العيادة غير موجودة أو غير نشطة" });
+
+            return Ok(new
+            {
+                id = clinic.Id,
+                name = clinic.Name,
+                logo = clinic.Logo,
+                isAdmin = false,
+            });
+        }
         //post: api/clinics
         // SuperAdmin فقط — إنشاء عيادة جديدة
- 
+
         [HttpPost]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult<ClinicResponseDto>> Create([FromBody] CreateClinicDto dto)
@@ -99,24 +120,33 @@ namespace ClinicSaaS.API.Controllers
 
             // ✅ إنشاء الأقسام الافتراضية تلقائياً
             var defaultDepartments = new[]
-            {
-        "الاستقبال", "الأسنان", "الأطفال", "العيون",
-        "المحاسبة", "الإدارة", "المختبر", "الأشعة",
-        "تمريض", "صيدله"
+  {
+    new { Name = "الاستقبال", NameEn = "Reception"      },
+    new { Name = "الأسنان",   NameEn = "Dentistry"      },
+    new { Name = "الأطفال",   NameEn = "Pediatrics"     },
+    new { Name = "العيون",    NameEn = "Ophthalmology"  },
+    new { Name = "المحاسبة",  NameEn = "Accounting"     },
+    new { Name = "الإدارة",   NameEn = "Administration" },
+    new { Name = "المختبر",   NameEn = "Laboratory"     },
+    new { Name = "الأشعة",    NameEn = "Radiology"      },
+    new { Name = "تمريض",     NameEn = "Nursing"        },
+    new { Name = "صيدله",     NameEn = "Pharmacy"       },
+};
 
-    };
-
-            foreach (var name in defaultDepartments)
+            foreach (var dept in defaultDepartments)
             {
                 _db.Departments.Add(new Department
                 {
                     Id = Guid.NewGuid(),
-                    Name = name,
+                    Name = dept.Name,
+                    NameEn = dept.NameEn,  // ✅
                     ClinicId = clinic.Id,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                 });
             }
+
+            
             await _db.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetById), new { id = clinic.Id }, ToResponse(clinic));

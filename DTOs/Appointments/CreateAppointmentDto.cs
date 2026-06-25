@@ -14,6 +14,7 @@
         public string? Notes { get; set; }// ملاحظات عامة عن الموعد
         public string? Notes2 { get; set; }// ملاحظات إضافية (يمكن استخدامها لأي غرض)
         public string? Notes3 { get; set; }// ملاحظات إضافية أخرى (يمكن استخدامها لأي غرض)
+        public string? Lang { get; set; } //
     }
 
 }

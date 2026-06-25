@@ -13,14 +13,18 @@ namespace ClinicSaaS.API.Controllers
     public class AppointmentsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
-        private readonly IClinicContext _clinicContext; // ✅ أضف
+        private readonly IClinicContext _clinicContext;
 
         public AppointmentsController(ApplicationDbContext db, IClinicContext clinicContext)
         {
             _db = db;
-            _clinicContext = clinicContext; // ✅ أضف
+            _clinicContext = clinicContext;
         }
-        
+
+        // ✅ دالة مساعدة للرسائل ثنائية اللغة
+        private static string Msg(string? lang, string ar, string en)
+            => lang == "ar" ? ar : en;
+
         // GET: api/appointments
         [HttpGet]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetAll()
@@ -34,8 +38,6 @@ namespace ClinicSaaS.API.Controllers
 
                 query = query.Where(a => a.ClinicId == _clinicContext.ClinicId);
 
-                // ✅ الطبيب يرى مواعيده فقط
-                // ✅ استخدم UserId للبحث عن بطاقة الطبيب أولاً
                 if (_clinicContext.Role == "Doctor")
                 {
                     var doctorRecord = await _db.Doctors
@@ -58,6 +60,7 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(appointments.Select(a => ToResponse(a)).ToList());
         }
+
         // GET: api/appointments/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<AppointmentResponseDto>> GetById(Guid id)
@@ -69,12 +72,12 @@ namespace ClinicSaaS.API.Controllers
             if (appointment == null)
                 return NotFound();
 
-            // ✅ تحقق من العيادة
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
             return Ok(ToResponse(appointment));
         }
+
         // GET: api/appointments/today-by-doctor
         [HttpGet("today-by-doctor")]
         public async Task<ActionResult> GetTodayByDoctor()
@@ -99,7 +102,6 @@ namespace ClinicSaaS.API.Controllers
                 .Include(a => a.Patient)
                 .ToListAsync();
 
-            // تجميع حسب الطبيب
             var result = appointments
                 .GroupBy(a => a.DoctorId)
                 .Select(g => new {
@@ -118,11 +120,11 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(result);
         }
+
         // GET: api/appointments/patient/{patientId}
         [HttpGet("patient/{patientId}")]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetByPatient(Guid patientId)
         {
-            // ✅ تحقق أن المريض ينتمي لنفس العيادة
             var patient = await _db.Patients
                 .FirstOrDefaultAsync(p => p.Id == patientId && !p.isdeleted);
 
@@ -135,7 +137,6 @@ namespace ClinicSaaS.API.Controllers
             var query = _db.Appointments
                 .Where(a => a.PatientId == patientId && !a.isdeleted);
 
-            // ✅ فلتر إضافي للعيادة
             if (!_clinicContext.IsCompanyStaff)
                 query = query.Where(a => a.ClinicId == _clinicContext.ClinicId);
 
@@ -144,35 +145,40 @@ namespace ClinicSaaS.API.Controllers
                 .Include(a => a.Patient)
                 .ToListAsync();
 
-            var result = appointments.Select(a => ToResponse(a)).ToList();
-            return Ok(result);
+            return Ok(appointments.Select(a => ToResponse(a)).ToList());
         }
 
         // POST: api/appointments
         [HttpPost]
         public async Task<ActionResult<AppointmentResponseDto>> Create([FromBody] CreateAppointmentDto dto)
         {
+            // ✅ اللغة من الـ DTO
+            var lang = dto.Lang ?? "ar";
+
             if (!_clinicContext.HasPermission("appointments.create"))
                 return Forbid();
 
             if (_clinicContext.IsSuperAdmin)
-                return BadRequest("SuperAdmin لا يستطيع إضافة مواعيد مباشرة");
+                return BadRequest(Msg(lang,
+                    "SuperAdmin لا يستطيع إضافة مواعيد مباشرة",
+                    "SuperAdmin cannot add appointments directly"));
 
             if (_clinicContext.ClinicId == null)
-                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+                return Unauthorized(Msg(lang,
+                    "لا توجد عيادة مرتبطة بهذا المستخدم",
+                    "No clinic associated with this user"));
 
             var patient = await _db.Patients
                 .FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.isdeleted);
 
             if (patient == null)
-                return BadRequest("المريض غير موجود");
+                return BadRequest(Msg(lang, "المريض غير موجود", "Patient not found"));
 
             if (patient.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
             if (dto.DoctorId.HasValue)
             {
-                // ✅ تحويل وقت الموعد لتوقيت العيادة
                 var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId);
                 var tzId = clinic?.TimeZone ?? "Asia/Amman";
 
@@ -187,7 +193,6 @@ namespace ClinicSaaS.API.Controllers
                 }
                 catch
                 {
-                    // fallback — استخدم الوقت كما هو
                     appointmentLocal = dto.AppointmentDate;
                 }
 
@@ -202,7 +207,9 @@ namespace ClinicSaaS.API.Controllers
                         && s.IsActive);
 
                 if (clinicSchedule == null)
-                    return BadRequest("العيادة مغلقة في هذا اليوم");
+                    return BadRequest(Msg(lang,
+                        "العيادة مغلقة في هذا اليوم",
+                        "Clinic is closed on this day"));
 
                 // 2 — تحقق أن الطبيب يعمل
                 var doctorSchedule = await _db.DoctorSchedules
@@ -211,11 +218,15 @@ namespace ClinicSaaS.API.Controllers
                         && s.IsActive);
 
                 if (doctorSchedule == null)
-                    return BadRequest("الطبيب لا يعمل في هذا اليوم");
+                    return BadRequest(Msg(lang,
+                        "الطبيب لا يعمل في هذا اليوم",
+                        "Doctor does not work on this day"));
 
                 // 3 — تحقق أن الوقت ضمن دوام الطبيب
                 if (timeOfDay < doctorSchedule.StartTime || timeOfDay >= doctorSchedule.EndTime)
-                    return BadRequest($"الوقت خارج دوام الطبيب ({doctorSchedule.StartTime} - {doctorSchedule.EndTime})");
+                    return BadRequest(Msg(lang,
+                        $"الوقت خارج دوام الطبيب ({doctorSchedule.StartTime} - {doctorSchedule.EndTime})",
+                        $"Time is outside doctor's working hours ({doctorSchedule.StartTime} - {doctorSchedule.EndTime})"));
 
                 // 4 — تحقق أن الموعد غير محجوز مسبقاً
                 var slotEnd = dto.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration);
@@ -227,7 +238,9 @@ namespace ClinicSaaS.API.Controllers
                         && a.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration) > dto.AppointmentDate);
 
                 if (isConflict)
-                    return BadRequest("هذا الموعد محجوز مسبقاً — اختر وقتاً آخر");
+                    return BadRequest(Msg(lang,
+                        "هذا الموعد محجوز مسبقاً — اختر وقتاً آخر",
+                        "This slot is already booked — please choose another time"));
 
                 // 5 — تحديد السعر تلقائياً
                 if (dto.Price == null)
@@ -245,7 +258,9 @@ namespace ClinicSaaS.API.Controllers
             }
 
             if (dto.AppointmentDate <= DateTime.UtcNow)
-                return BadRequest("تاريخ الموعد يجب أن يكون في المستقبل");
+                return BadRequest(Msg(lang,
+                    "تاريخ الموعد يجب أن يكون في المستقبل",
+                    "Appointment date must be in the future"));
 
             var appointment = new Appointment
             {
@@ -281,7 +296,6 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.HasPermission("appointments.edit"))
                 return Forbid();
 
-            // ✅ جلب الموعد أولاً
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
                 .FirstOrDefaultAsync(a => a.Id == id && !a.isdeleted);
@@ -289,12 +303,9 @@ namespace ClinicSaaS.API.Controllers
             if (appointment == null)
                 return NotFound();
 
-            // ✅ تحقق من العيادة
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            // ✅ Doctor يعدّل مواعيده فقط — بعد جلب الموعد
-            // ✅ يجب المقارنة بـ Doctor.Id وليس UserId
             if (_clinicContext.Role == "Doctor")
             {
                 var myDoctor = await _db.Doctors
@@ -352,7 +363,6 @@ namespace ClinicSaaS.API.Controllers
             if (appointment == null || appointment.isdeleted)
                 return NotFound();
 
-            // ✅ تحقق من العيادة
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
@@ -360,8 +370,8 @@ namespace ClinicSaaS.API.Controllers
             await _db.SaveChangesAsync();
             return NoContent();
         }
-        // POST: api/roles/seed-defaults/{clinicId}
-        // إنشاء الأدوار الأساسية للعيادة
+
+        // POST: api/appointments/seed-defaults/{clinicId}
         [HttpPost("seed-defaults/{clinicId}")]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult> SeedDefaultRoles(Guid clinicId)
@@ -369,21 +379,18 @@ namespace ClinicSaaS.API.Controllers
             var clinic = await _db.Clinics.FindAsync(clinicId);
             if (clinic == null) return NotFound("العيادة غير موجودة");
 
-            // ✅ الأدوار الأساسية
             var defaultRoles = new[]
             {
-        new { Name = "ClinicAdmin",   Description = "مدير العيادة — صلاحيات كاملة" },
-        new { Name = "Doctor",        Description = "طبيب — يرى مواعيده ومرضاه فقط" },
-        new { Name = "Receptionist",  Description = "موظف استقبال — إدارة المرضى والمواعيد" },
-        new { Name = "ClinicStaff",   Description = "موظف العيادة — صلاحيات محدودة" },
-    };
+                new { Name = "ClinicAdmin",   Description = "مدير العيادة — صلاحيات كاملة" },
+                new { Name = "Doctor",        Description = "طبيب — يرى مواعيده ومرضاه فقط" },
+                new { Name = "Receptionist",  Description = "موظف استقبال — إدارة المرضى والمواعيد" },
+                new { Name = "ClinicStaff",   Description = "موظف العيادة — صلاحيات محدودة" },
+            };
 
-            // ✅ جلب كل الصلاحيات
             var allPermissions = await _db.Permissions.ToListAsync();
 
             foreach (var roleData in defaultRoles)
             {
-                // تحقق أن الدور غير موجود مسبقاً للعيادة
                 var exists = await _db.Roles
                     .AnyAsync(r => r.Name == roleData.Name && r.ClinicId == clinicId);
                 if (exists) continue;
@@ -400,7 +407,6 @@ namespace ClinicSaaS.API.Controllers
                 _db.Roles.Add(role);
                 await _db.SaveChangesAsync();
 
-                // ✅ إضافة الصلاحيات الافتراضية لكل دور
                 var permissionsForRole = GetDefaultPermissionsForRole(roleData.Name, allPermissions);
                 foreach (var perm in permissionsForRole)
                 {
@@ -409,7 +415,7 @@ namespace ClinicSaaS.API.Controllers
                         Id = Guid.NewGuid(),
                         RoleId = role.Id,
                         PermissionId = perm.Id,
-                        ClinicId = null, // افتراضية
+                        ClinicId = null,
                     });
                 }
                 await _db.SaveChangesAsync();
@@ -418,10 +424,8 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { message = "تم إنشاء الأدوار الأساسية بنجاح" });
         }
 
-
         // GET: api/appointments/doctor-status/{doctorId}
         [HttpGet("doctor-status/{doctorId}")]
-
         public async Task<ActionResult> GetDoctorStatus(Guid doctorId)
         {
             if (_clinicContext.ClinicId == null) return Unauthorized();
@@ -429,14 +433,12 @@ namespace ClinicSaaS.API.Controllers
             var now = DateTime.UtcNow;
             var today = now.Date;
 
-            // ✅ جلب timezone العيادة أولاً
             var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId);
             var tzId = clinic?.TimeZone ?? "Jordan Standard Time";
             TimeZoneInfo tz;
             try { tz = TimeZoneInfo.FindSystemTimeZoneById(tzId); }
             catch { tz = TimeZoneInfo.Utc; }
 
-            // موعد حالي (خلال 30 دقيقة)
             var currentAppointment = await _db.Appointments
                 .Where(a => a.DoctorId == doctorId
                     && a.ClinicId == _clinicContext.ClinicId
@@ -447,7 +449,6 @@ namespace ClinicSaaS.API.Controllers
                 .Include(a => a.Patient)
                 .FirstOrDefaultAsync();
 
-            // في قائمة الدور اليوم
             var queueCount = await _db.QueueEntries
                 .CountAsync(q => q.DoctorId == doctorId
                     && q.ClinicId == _clinicContext.ClinicId
@@ -455,7 +456,6 @@ namespace ClinicSaaS.API.Controllers
                     && !q.IsDeleted
                     && (q.Status == "waiting" || q.Status == "called"));
 
-            // الموعد القادم
             var nextAppointment = await _db.Appointments
                 .Where(a => a.DoctorId == doctorId
                     && a.ClinicId == _clinicContext.ClinicId
@@ -467,19 +467,12 @@ namespace ClinicSaaS.API.Controllers
 
             var isBusy = currentAppointment != null;
 
-            // ✅ تحويل الموعد القادم لتوقيت العيادة
-            DateTime? nextLocal = nextAppointment?.AppointmentDate != null
-                ? TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.SpecifyKind(nextAppointment.AppointmentDate, DateTimeKind.Utc), tz)
-                : null;
-
             return Ok(new
             {
                 isBusy,
                 queueCount,
                 currentPatient = currentAppointment?.Patient?.FullName,
-                nextAppointmentTime = nextAppointment?.AppointmentDate
-         .ToString("HH:mm"), // ✅ أرسل الوقت فقط كـ string
+                nextAppointmentTime = nextAppointment?.AppointmentDate.ToString("HH:mm"),
             });
         }
 
@@ -491,7 +484,7 @@ namespace ClinicSaaS.API.Controllers
             if (appointment == null || appointment.isdeleted) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            appointment.CheckInTime = DateTime.Now; // ✅ توقيت محلي
+            appointment.CheckInTime = DateTime.Now;
             appointment.Status = "confirmed";
             await _db.SaveChangesAsync();
 
@@ -509,7 +502,7 @@ namespace ClinicSaaS.API.Controllers
             if (appointment.CheckInTime == null)
                 return BadRequest("لم يتم تسجيل الدخول بعد");
 
-            appointment.CheckOutTime = DateTime.Now; // ✅ توقيت محلي
+            appointment.CheckOutTime = DateTime.Now;
             appointment.Status = "completed";
             await _db.SaveChangesAsync();
 
@@ -521,41 +514,41 @@ namespace ClinicSaaS.API.Controllers
                 durationMinutes = (int)duration!.Value.TotalMinutes
             });
         }
-        // ✅ الصلاحيات الافتراضية لكل دور
+
         private static List<Permission> GetDefaultPermissionsForRole(string roleName, List<Permission> allPermissions)
         {
             var permMap = new Dictionary<string, string[]>
             {
                 ["ClinicAdmin"] = new[]
                 {
-            "patients.view", "patients.create", "patients.edit", "patients.delete",
-            "doctors.view", "doctors.create", "doctors.edit", "doctors.delete",
-            "appointments.view", "appointments.create", "appointments.edit", "appointments.delete",
-            "schedules.view", "schedules.manage",
-            "users.view", "users.create",
-            "departments.manage",
-            "settings.view", "settings.edit",
-            "reports.view",
-        },
+                    "patients.view", "patients.create", "patients.edit", "patients.delete",
+                    "doctors.view", "doctors.create", "doctors.edit", "doctors.delete",
+                    "appointments.view", "appointments.create", "appointments.edit", "appointments.delete",
+                    "schedules.view", "schedules.manage",
+                    "users.view", "users.create",
+                    "departments.manage",
+                    "settings.view", "settings.edit",
+                    "reports.view",
+                },
                 ["Doctor"] = new[]
                 {
-            "patients.view",
-            "appointments.view", "appointments.create", "appointments.edit",
-            "schedules.view",
-        },
+                    "patients.view",
+                    "appointments.view", "appointments.create", "appointments.edit",
+                    "schedules.view",
+                },
                 ["Receptionist"] = new[]
                 {
-            "patients.view", "patients.create", "patients.edit",
-            "appointments.view", "appointments.create", "appointments.edit",
-            "schedules.view",
-        },
+                    "patients.view", "patients.create", "patients.edit",
+                    "appointments.view", "appointments.create", "appointments.edit",
+                    "schedules.view",
+                },
                 ["ClinicStaff"] = new[]
                 {
-            "patients.view",
-            "appointments.view",
-            "schedules.view",
-            "reports.view",
-        },
+                    "patients.view",
+                    "appointments.view",
+                    "schedules.view",
+                    "reports.view",
+                },
             };
 
             if (!permMap.ContainsKey(roleName)) return new List<Permission>();
@@ -564,6 +557,7 @@ namespace ClinicSaaS.API.Controllers
                 .Where(p => permMap[roleName].Contains(p.Name))
                 .ToList();
         }
+
         private static AppointmentResponseDto ToResponse(Appointment a) => new AppointmentResponseDto
         {
             Id = a.Id,
@@ -572,7 +566,7 @@ namespace ClinicSaaS.API.Controllers
             PatientNumber = a.Patient.PatientNumber,
             AppointmentDate = a.AppointmentDate,
             DoctorId = a.DoctorId,
-            DoctorName = a.Doctor?.FullName,  // ✅ تأكد أن هذا موجود
+            DoctorName = a.Doctor?.FullName,
             Type = a.Type,
             Price = a.Price,
             Status = a.Status,
@@ -580,7 +574,7 @@ namespace ClinicSaaS.API.Controllers
             Notes2 = a.Notes2,
             Notes3 = a.Notes3,
             CreatedAt = a.CreatedAt,
-            CheckInTime = a.CheckInTime,   
+            CheckInTime = a.CheckInTime,
             CheckOutTime = a.CheckOutTime,
         };
     }

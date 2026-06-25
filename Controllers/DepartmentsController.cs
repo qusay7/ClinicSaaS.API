@@ -36,7 +36,9 @@ namespace ClinicSaaS.API.Controllers
             var result = depts.Select(d => new {
                 d.Id,
                 d.Name,
+                d.NameEn,
                 d.Type,
+
                 d.SettingsJson,
                 d.IsActive,
                 d.CreatedAt,
