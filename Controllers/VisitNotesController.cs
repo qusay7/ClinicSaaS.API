@@ -1,5 +1,4 @@
 ﻿using ClinicSaaS.API.Data;
-using ClinicSaaS.API.Data.ClinicSaaS.API.Data;
 using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

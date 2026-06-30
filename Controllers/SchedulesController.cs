@@ -21,12 +21,11 @@ namespace ClinicSaaS.API.Controllers
             _clinicContext = clinicContext;
         }
 
-        // ═══════════════════════════════════════
-        // جدول العيادة
-        // ═══════════════════════════════════════
+        private static string Msg(string lang, string ar, string en)
+            => lang == "ar" ? ar : en;
 
-        // GET: api/schedules/clinic
-        // جلب جدول دوام العيادة الحالية
+        // ═══════ CLINIC ═══════
+
         [HttpGet("clinic")]
         public async Task<ActionResult<IEnumerable<ClinicScheduleResponseDto>>> GetClinicSchedule()
         {
@@ -34,39 +33,32 @@ namespace ClinicSaaS.API.Controllers
                 return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
 
             var clinicId = _clinicContext.ClinicId!.Value;
-
             var schedules = await _db.ClinicSchedules
                 .Where(s => s.ClinicId == clinicId)
                 .OrderBy(s => s.DayOfWeek)
                 .ToListAsync();
 
-            return Ok(schedules.Select(s => ToClinicResponse(s)).ToList());
+            return Ok(schedules.Select(ToClinicResponse).ToList());
         }
 
-        // POST: api/schedules/clinic
-        // إضافة يوم عمل للعيادة
         [HttpPost("clinic")]
         public async Task<ActionResult<ClinicScheduleResponseDto>> AddClinicDay(
-            [FromBody] CreateClinicScheduleDto dto)
+            [FromBody] CreateClinicScheduleDto dto,
+            [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage"))
-                return Forbid();
-
+            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
             if (_clinicContext.ClinicId == null)
-                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+                return Unauthorized(Msg(lang, "لا توجد عيادة مرتبطة بهذا المستخدم", "No clinic associated"));
 
             var clinicId = _clinicContext.ClinicId.Value;
 
-            // تحقق أن اليوم غير مكرر
             var exists = await _db.ClinicSchedules
                 .AnyAsync(s => s.ClinicId == clinicId && s.DayOfWeek == dto.DayOfWeek);
-
             if (exists)
-                return BadRequest("هذا اليوم موجود مسبقاً في جدول العيادة");
+                return BadRequest(Msg(lang, "هذا اليوم موجود مسبقاً في جدول العيادة", "This day already exists in clinic schedule"));
 
-            // تحقق أن وقت الفتح قبل الإغلاق
             if (dto.OpenTime >= dto.CloseTime)
-                return BadRequest("وقت الفتح يجب أن يكون قبل وقت الإغلاق");
+                return BadRequest(Msg(lang, "وقت الفتح يجب أن يكون قبل وقت الإغلاق", "Open time must be before close time"));
 
             var schedule = new ClinicSchedule
             {
@@ -75,92 +67,62 @@ namespace ClinicSaaS.API.Controllers
                 DayOfWeek = dto.DayOfWeek,
                 OpenTime = dto.OpenTime,
                 CloseTime = dto.CloseTime,
-                IsActive = true
+                IsActive = true,
             };
-
             _db.ClinicSchedules.Add(schedule);
             await _db.SaveChangesAsync();
-
             return CreatedAtAction(nameof(GetClinicSchedule), ToClinicResponse(schedule));
         }
 
-        // PUT: api/schedules/clinic/{id}
-        // تعديل يوم عمل العيادة
         [HttpPut("clinic/{id}")]
         public async Task<ActionResult<ClinicScheduleResponseDto>> UpdateClinicDay(
-            Guid id, [FromBody] CreateClinicScheduleDto dto)
+            Guid id, [FromBody] CreateClinicScheduleDto dto,
+            [FromQuery] string lang = "ar")
         {
             var schedule = await _db.ClinicSchedules.FindAsync(id);
-
-            if (schedule == null)
-                return NotFound();
-
-            if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff)
-                return Forbid();
+            if (schedule == null) return NotFound();
+            if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff) return Forbid();
 
             if (dto.OpenTime >= dto.CloseTime)
-                return BadRequest("وقت الفتح يجب أن يكون قبل وقت الإغلاق");
+                return BadRequest(Msg(lang, "وقت الفتح يجب أن يكون قبل وقت الإغلاق", "Open time must be before close time"));
 
             schedule.OpenTime = dto.OpenTime;
             schedule.CloseTime = dto.CloseTime;
-
             await _db.SaveChangesAsync();
             return Ok(ToClinicResponse(schedule));
         }
 
-        // DELETE: api/schedules/clinic/{id}
-        // حذف يوم عمل من جدول العيادة
         [HttpDelete("clinic/{id}")]
         public async Task<ActionResult> DeleteClinicDay(Guid id)
         {
-            if (!_clinicContext.HasPermission("schedules.manage"))
-                return Forbid();
-
+            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
             var schedule = await _db.ClinicSchedules.FindAsync(id);
-
-            if (schedule == null)
-                return NotFound();
-
-            if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff)
-                return Forbid();
-
+            if (schedule == null) return NotFound();
+            if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff) return Forbid();
             _db.ClinicSchedules.Remove(schedule);
             await _db.SaveChangesAsync();
             return NoContent();
         }
 
-        // ═══════════════════════════════════════
-        // جدول الطبيب
-        // ═══════════════════════════════════════
+        // ═══════ DOCTOR ═══════
 
-        // GET: api/schedules/doctor/{doctorId}
-        // جلب جدول دوام طبيب معين
-        // GET: api/schedules/doctor/{doctorId}
         [HttpGet("doctor/{doctorId}")]
         public async Task<ActionResult<IEnumerable<DoctorScheduleResponseDto>>> GetDoctorSchedule(Guid doctorId)
         {
             var doctor = await _db.Doctors.FindAsync(doctorId);
-            if (doctor == null || doctor.isdeleted)
-                return NotFound("الطبيب غير موجود");
+            if (doctor == null || doctor.isdeleted) return NotFound("الطبيب غير موجود");
+            if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId)
-                return Forbid();
-
-            // ✅ الطبيب يرى جدوله فقط
             if (_clinicContext.Role == "Doctor")
             {
                 var userEmail = await _db.Users
                     .Where(u => u.Id == _clinicContext.UserId)
                     .Select(u => u.Email)
                     .FirstOrDefaultAsync();
-
                 var doctorRecord = await _db.Doctors
                     .FirstOrDefaultAsync(d => d.Email == userEmail
-                        && d.ClinicId == _clinicContext.ClinicId
-                        && !d.isdeleted);
-
-                if (doctorRecord == null || doctorRecord.Id != doctorId)
-                    return Forbid();
+                        && d.ClinicId == _clinicContext.ClinicId && !d.isdeleted);
+                if (doctorRecord == null || doctorRecord.Id != doctorId) return Forbid();
             }
 
             var schedules = await _db.DoctorSchedules
@@ -169,54 +131,42 @@ namespace ClinicSaaS.API.Controllers
                 .OrderBy(s => s.DayOfWeek)
                 .ToListAsync();
 
-            return Ok(schedules.Select(s => ToDoctorResponse(s)).ToList());
+            return Ok(schedules.Select(ToDoctorResponse).ToList());
         }
 
-        // POST: api/schedules/doctor
-        // إضافة يوم عمل لطبيب
         [HttpPost("doctor")]
-        public async Task<ActionResult<DoctorScheduleResponseDto>> AddDoctorDay(
-            [FromBody] CreateDoctorScheduleDto dto)
+        public async Task<ActionResult> AddDoctorDay(
+            [FromBody] CreateDoctorScheduleDto dto,
+            [FromQuery] string lang = "ar")
         {
-          
-
-            if (!_clinicContext.HasPermission("schedules.manage"))
-                return Forbid();
-
+            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
             if (_clinicContext.ClinicId == null && !_clinicContext.IsCompanyStaff)
-                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+                return Unauthorized(Msg(lang, "لا توجد عيادة مرتبطة بهذا المستخدم", "No clinic associated"));
 
-            // تحقق أن الطبيب موجود
             var doctor = await _db.Doctors.FindAsync(dto.DoctorId);
             if (doctor == null || doctor.isdeleted)
-                return NotFound("الطبيب غير موجود");
-
+                return NotFound(Msg(lang, "الطبيب غير موجود", "Doctor not found"));
             if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            // تحقق أن اليوم غير مكرر لنفس الطبيب
+            // تحقق أن اليوم غير مكرر
             var exists = await _db.DoctorSchedules
                 .AnyAsync(s => s.DoctorId == dto.DoctorId && s.DayOfWeek == dto.DayOfWeek);
-
             if (exists)
-                return BadRequest("هذا اليوم موجود مسبقاً في جدول الطبيب");
+                return BadRequest(Msg(lang,
+                    "هذا اليوم موجود مسبقاً في جدول الطبيب",
+                    "This day already exists in doctor's schedule"));
 
             // تحقق أن وقت البدء قبل الانتهاء
             if (dto.StartTime >= dto.EndTime)
-                return BadRequest("وقت البدء يجب أن يكون قبل وقت الانتهاء");
+                return BadRequest(Msg(lang,
+                    "وقت البدء يجب أن يكون قبل وقت الانتهاء",
+                    "Start time must be before end time"));
 
-            // تحقق أن الجدول ضمن دوام العيادة
-            var clinicId = doctor.ClinicId;
+            // تحقق من جدول العيادة — تحذير فقط وليس منع
             var clinicSchedule = await _db.ClinicSchedules
-                .FirstOrDefaultAsync(s => s.ClinicId == clinicId
-                    && s.DayOfWeek == dto.DayOfWeek
-                    && s.IsActive);
-
-            if (clinicSchedule == null)
-                return BadRequest("العيادة مغلقة في هذا اليوم");
-
-            if (dto.StartTime < clinicSchedule.OpenTime || dto.EndTime > clinicSchedule.CloseTime)
-                return BadRequest($"وقت الطبيب يجب أن يكون ضمن دوام العيادة ({clinicSchedule.OpenTime} - {clinicSchedule.CloseTime})");
+                .FirstOrDefaultAsync(s => s.ClinicId == doctor.ClinicId
+                    && s.DayOfWeek == dto.DayOfWeek && s.IsActive);
 
             var schedule = new DoctorSchedule
             {
@@ -228,150 +178,154 @@ namespace ClinicSaaS.API.Controllers
                 SlotDuration = dto.SlotDuration,
                 FirstVisitPrice = dto.FirstVisitPrice,
                 FollowUpPrice = dto.FollowUpPrice,
-                IsActive = true
+                IsActive = true,
             };
-
             _db.DoctorSchedules.Add(schedule);
             await _db.SaveChangesAsync();
-
             await _db.Entry(schedule).Reference(s => s.Doctor).LoadAsync();
-            return Ok(ToDoctorResponse(schedule));
+
+            return Ok(new
+            {
+                schedule = ToDoctorResponse(schedule),
+                warning = clinicSchedule == null
+                    ? Msg(lang,
+                        "تنبيه: العيادة لا تملك جدول دوام لهذا اليوم بعد — يُنصح بإضافته من تبويب دوام العيادة",
+                        "Warning: Clinic has no schedule for this day yet — consider adding it from Clinic Hours tab")
+                    : null,
+            });
         }
 
-        // PUT: api/schedules/doctor/{id}
         [HttpPut("doctor/{id}")]
         public async Task<ActionResult<DoctorScheduleResponseDto>> UpdateDoctorDay(
-            Guid id, [FromBody] CreateDoctorScheduleDto dto)
+            Guid id, [FromBody] CreateDoctorScheduleDto dto,
+            [FromQuery] string lang = "ar")
         {
             var schedule = await _db.DoctorSchedules
                 .Include(s => s.Doctor)
                 .FirstOrDefaultAsync(s => s.Id == id);
-
-            if (schedule == null)
-                return NotFound();
-
-            if (!_clinicContext.IsCompanyStaff && schedule.Doctor.ClinicId != _clinicContext.ClinicId)
-                return Forbid();
+            if (schedule == null) return NotFound();
+            if (!_clinicContext.IsCompanyStaff && schedule.Doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
 
             if (dto.StartTime >= dto.EndTime)
-                return BadRequest("وقت البدء يجب أن يكون قبل وقت الانتهاء");
+                return BadRequest(Msg(lang,
+                    "وقت البدء يجب أن يكون قبل وقت الانتهاء",
+                    "Start time must be before end time"));
 
             schedule.StartTime = dto.StartTime;
             schedule.EndTime = dto.EndTime;
             schedule.SlotDuration = dto.SlotDuration;
             schedule.FirstVisitPrice = dto.FirstVisitPrice;
             schedule.FollowUpPrice = dto.FollowUpPrice;
-
             await _db.SaveChangesAsync();
             return Ok(ToDoctorResponse(schedule));
         }
 
-        // DELETE: api/schedules/doctor/{id}
         [HttpDelete("doctor/{id}")]
         public async Task<ActionResult> DeleteDoctorDay(Guid id)
         {
-            if (!_clinicContext.HasPermission("schedules.manage"))
-                return Forbid();
-
+            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
             var schedule = await _db.DoctorSchedules
                 .Include(s => s.Doctor)
                 .FirstOrDefaultAsync(s => s.Id == id);
-
-            if (schedule == null)
-                return NotFound();
-
-            if (!_clinicContext.IsCompanyStaff && schedule.Doctor.ClinicId != _clinicContext.ClinicId)
-                return Forbid();
-
+            if (schedule == null) return NotFound();
+            if (!_clinicContext.IsCompanyStaff && schedule.Doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
             _db.DoctorSchedules.Remove(schedule);
             await _db.SaveChangesAsync();
             return NoContent();
         }
 
-        // ═══════════════════════════════════════
-        // المواعيد المتاحة
-        // ═══════════════════════════════════════
+        // ═══════ AVAILABLE SLOTS ═══════
 
-        // GET: api/schedules/available-slots?doctorId=...&date=2026-06-08
         [HttpGet("available-slots")]
         public async Task<ActionResult> GetAvailableSlots(
-            [FromQuery] Guid doctorId,
-            [FromQuery] string date) // ✅ string بدل DateTime
+     [FromQuery] Guid doctorId,
+     [FromQuery] string date)
         {
-            // ✅ حوّل التاريخ بدون Timezone
             if (!DateOnly.TryParse(date, out var dateOnly))
                 return BadRequest("تاريخ غير صحيح");
 
-            var dateValue = dateOnly.ToDateTime(TimeOnly.MinValue); // Unspecified — لا تحويل
-            var dayOfWeek = dateValue.DayOfWeek; // ✅ الآن صحيح 100%
+            var dateValue = dateOnly.ToDateTime(TimeOnly.MinValue);
+            var dayOfWeek = dateValue.DayOfWeek;
 
             var doctor = await _db.Doctors.FindAsync(doctorId);
-            if (doctor == null || doctor.isdeleted)
-                return NotFound("الطبيب غير موجود");
+            if (doctor == null || doctor.isdeleted) return NotFound("الطبيب غير موجود");
+            if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId)
-                return Forbid();
+            // ✅ تحقق من إجازة العيادة (يوم كامل)
+            var clinicAbsent = await _db.Absences.AnyAsync(a =>
+                a.ClinicId == doctor.ClinicId &&
+                a.DoctorId == null &&
+                a.StartDate.Date <= dateValue.Date &&
+                a.EndDate.Date >= dateValue.Date &&
+                a.StartTime == null);
 
-            // 1 — تحقق أن العيادة مفتوحة
+            if (clinicAbsent)
+                return Ok(new { available = false, reason = "🏥 العيادة في إجازة في هذا اليوم", slots = new List<object>() });
+
+            // ✅ تحقق من إجازة الطبيب (يوم كامل)
+            var doctorAbsent = await _db.Absences.AnyAsync(a =>
+                a.ClinicId == doctor.ClinicId &&
+                a.DoctorId == doctorId &&
+                a.StartDate.Date <= dateValue.Date &&
+                a.EndDate.Date >= dateValue.Date &&
+                a.StartTime == null);
+
+            if (doctorAbsent)
+                return Ok(new { available = false, reason = "🌴 الطبيب في إجازة في هذا اليوم", slots = new List<object>() });
+
             var clinicSchedule = await _db.ClinicSchedules
                 .FirstOrDefaultAsync(s => s.ClinicId == doctor.ClinicId
-                    && s.DayOfWeek == dayOfWeek
-                    && s.IsActive);
-
+                    && s.DayOfWeek == dayOfWeek && s.IsActive);
             if (clinicSchedule == null)
                 return Ok(new { available = false, reason = "العيادة مغلقة في هذا اليوم", slots = new List<object>() });
 
-            // 2 — تحقق أن الطبيب يعمل
             var doctorSchedule = await _db.DoctorSchedules
                 .FirstOrDefaultAsync(s => s.DoctorId == doctorId
-                    && s.DayOfWeek == dayOfWeek
-                    && s.IsActive);
-
+                    && s.DayOfWeek == dayOfWeek && s.IsActive);
             if (doctorSchedule == null)
                 return Ok(new { available = false, reason = "الطبيب لا يعمل في هذا اليوم", slots = new List<object>() });
 
-            // 3 — جلب المواعيد المحجوزة في هذا اليوم
             var startOfDay = dateValue.Date;
             var endOfDay = startOfDay.AddDays(1);
-
-           
-            var slots = new List<object>();
             var current = dateValue.Date.Add(doctorSchedule.StartTime.ToTimeSpan());
             var end = dateValue.Date.Add(doctorSchedule.EndTime.ToTimeSpan());
 
-            // 3 — جلب المواعيد المحجوزة
             var bookedSlots = await _db.Appointments
-                .Where(a => a.DoctorId == doctorId
-                    && !a.isdeleted
-                    && a.AppointmentDate >= startOfDay
-                    && a.AppointmentDate < endOfDay
+                .Where(a => a.DoctorId == doctorId && !a.isdeleted
+                    && a.AppointmentDate >= startOfDay && a.AppointmentDate < endOfDay
                     && a.Status != "cancelled")
                 .Select(a => a.AppointmentDate)
                 .ToListAsync();
+            var bookedTimes = new HashSet<string>(bookedSlots.Select(b => b.ToString("HH:mm")));
 
-            // ✅ بدون تحويل timezone
-            var bookedTimes = new HashSet<string>(
-                bookedSlots.Select(b => b.ToString("HH:mm"))
-            );
+            // ✅ جلب إجازات الفترة المحددة (اجتماع/استراحة) لهذا اليوم
+            var partialAbsences = await _db.Absences
+                .Where(a => a.ClinicId == doctor.ClinicId
+                    && a.DoctorId == doctorId
+                    && a.StartDate.Date <= dateValue.Date
+                    && a.EndDate.Date >= dateValue.Date
+                    && a.StartTime != null)
+                .ToListAsync();
 
-
-            // 4 — توليد المواعيد
+            var slots = new List<object>();
             while (current.AddMinutes(doctorSchedule.SlotDuration) <= end)
             {
                 var timeStr = current.ToString("HH:mm");
-
-                // ✅ قارن بالوقت فقط
+                var timeOnly = TimeOnly.FromDateTime(current);
                 var isBooked = bookedTimes.Contains(timeStr);
+
+                // ✅ تحقق إذا الوقت يقع ضمن إجازة جزئية
+                var isAbsent = partialAbsences.Any(a => a.StartTime <= timeOnly && a.EndTime >= timeOnly);
 
                 slots.Add(new
                 {
                     time = timeStr,
                     dateTime = current.ToString("yyyy-MM-ddTHH:mm:ss"),
                     isBooked,
-                   // isAvailable = !isBooked && current > DateTime.Now
-                    isAvailable = !isBooked && current > TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Amman"))
+                    isAbsent,   // ✅ جديد
+                    isAvailable = !isBooked && !isAbsent && current > TimeZoneInfo.ConvertTimeFromUtc(
+                        DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Amman")),
                 });
-
                 current = current.AddMinutes(doctorSchedule.SlotDuration);
             }
 
@@ -387,13 +341,11 @@ namespace ClinicSaaS.API.Controllers
                 followUpPrice = doctorSchedule.FollowUpPrice,
                 totalSlots = slots.Count,
                 availableSlots = slots.Count(s => (bool)s.GetType().GetProperty("isAvailable")!.GetValue(s)!),
-                slots
+                slots,
             });
         }
 
-        // ═══════════════════════════════════════
-        // دوال مساعدة
-        // ═══════════════════════════════════════
+        // ═══════ HELPERS ═══════
 
         private static string GetDayName(DayOfWeek day) => day switch
         {
@@ -407,31 +359,29 @@ namespace ClinicSaaS.API.Controllers
             _ => ""
         };
 
-        private static ClinicScheduleResponseDto ToClinicResponse(ClinicSchedule s) =>
-            new ClinicScheduleResponseDto
-            {
-                Id = s.Id,
-                DayOfWeek = s.DayOfWeek,
-                DayName = GetDayName(s.DayOfWeek),
-                OpenTime = s.OpenTime,
-                CloseTime = s.CloseTime,
-                IsActive = s.IsActive
-            };
+        private static ClinicScheduleResponseDto ToClinicResponse(ClinicSchedule s) => new()
+        {
+            Id = s.Id,
+            DayOfWeek = s.DayOfWeek,
+            DayName = GetDayName(s.DayOfWeek),
+            OpenTime = s.OpenTime,
+            CloseTime = s.CloseTime,
+            IsActive = s.IsActive,
+        };
 
-        private static DoctorScheduleResponseDto ToDoctorResponse(DoctorSchedule s) =>
-            new DoctorScheduleResponseDto
-            {
-                Id = s.Id,
-                DoctorId = s.DoctorId,
-                DoctorName = s.Doctor?.FullName ?? "",
-                DayOfWeek = s.DayOfWeek,
-                DayName = GetDayName(s.DayOfWeek),
-                StartTime = s.StartTime,
-                EndTime = s.EndTime,
-                SlotDuration = s.SlotDuration,
-                FirstVisitPrice = s.FirstVisitPrice,
-                FollowUpPrice = s.FollowUpPrice,
-                IsActive = s.IsActive
-            };
+        private static DoctorScheduleResponseDto ToDoctorResponse(DoctorSchedule s) => new()
+        {
+            Id = s.Id,
+            DoctorId = s.DoctorId,
+            DoctorName = s.Doctor?.FullName ?? "",
+            DayOfWeek = s.DayOfWeek,
+            DayName = GetDayName(s.DayOfWeek),
+            StartTime = s.StartTime,
+            EndTime = s.EndTime,
+            SlotDuration = s.SlotDuration,
+            FirstVisitPrice = s.FirstVisitPrice,
+            FollowUpPrice = s.FollowUpPrice,
+            IsActive = s.IsActive,
+        };
     }
 }

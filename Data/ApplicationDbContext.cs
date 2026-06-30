@@ -1,5 +1,4 @@
-﻿using ClinicSaaS.API.Data.ClinicSaaS.API.Data;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 
 namespace ClinicSaaS.API.Data
 {
@@ -29,6 +28,7 @@ namespace ClinicSaaS.API.Data
         public DbSet<DepartmentRole> DepartmentRoles { get; set; }
         public DbSet<QueueEntry> QueueEntries { get; set; }
         public DbSet<VisitNote> VisitNotes { get; set; }
+        public DbSet<Absence> Absences { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -115,6 +115,18 @@ namespace ClinicSaaS.API.Data
                 .HasOne(v => v.QueueEntry)
                 .WithMany()
                 .HasForeignKey(v => v.QueueEntryId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<Absence>()
+    .HasOne(a => a.Clinic)
+    .WithMany()
+    .HasForeignKey(a => a.ClinicId)
+    .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<Absence>()
+                .HasOne(a => a.Doctor)
+                .WithMany()
+                .HasForeignKey(a => a.DoctorId)
                 .OnDelete(DeleteBehavior.NoAction);
         }
     }
@@ -231,8 +243,7 @@ namespace ClinicSaaS.API.Data
     }
 
     // جدول المستخدمين
-  
-        public class User
+   public class User
         {
             public Guid Id { get; set; }
             public string FullName { get; set; } = default!;   // الاسم الكامل للعرض
@@ -252,7 +263,7 @@ namespace ClinicSaaS.API.Data
 
         }
     
-
+    //الطبيب
     public class Doctor
     {
         public Guid Id { get; set; }
@@ -461,9 +472,8 @@ namespace ClinicSaaS.API.Data
         public bool IsDeleted { get; set; } = false;
     }
 
-    namespace ClinicSaaS.API.Data
-    {
-        public class VisitNote
+    // جدول ملاحظات الزيارة (Visit Notes)
+    public class VisitNote
         {
             public Guid Id { get; set; }
             public Guid ClinicId { get; set; }
@@ -489,7 +499,26 @@ namespace ClinicSaaS.API.Data
             public Appointment? Appointment { get; set; }
             public QueueEntry? QueueEntry { get; set; }
         }
+
+    // جدول الغياب (Absences) — إجازات العيادة أو الطبيب
+    public class Absence
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid? DoctorId { get; set; }   // null = إجازة العيادة كاملة
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public TimeOnly? StartTime { get; set; }  // null = يوم كامل
+        public TimeOnly? EndTime { get; set; }
+        public string Type { get; set; } = "holiday"; // holiday/vacation/meeting/break/other
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // Navigation
+        public Clinic Clinic { get; set; } = null!;
+        public Doctor? Doctor { get; set; }
     }
-
-
 }
+
+
+
