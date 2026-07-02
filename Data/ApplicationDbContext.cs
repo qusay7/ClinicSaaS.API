@@ -29,6 +29,7 @@ namespace ClinicSaaS.API.Data
         public DbSet<QueueEntry> QueueEntries { get; set; }
         public DbSet<VisitNote> VisitNotes { get; set; }
         public DbSet<Absence> Absences { get; set; }
+        public DbSet<NotificationLog> NotificationLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -517,6 +518,24 @@ namespace ClinicSaaS.API.Data
         // Navigation
         public Clinic Clinic { get; set; } = null!;
         public Doctor? Doctor { get; set; }
+    }
+
+    // أضف هذا الـ entity في ApplicationDbContext
+    public class NotificationLog
+    {
+        public Guid Id { get; set; }
+        public Guid AppointmentId { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+        public string Type { get; set; } = "";  // confirmation / day_before / hour_before
+        public string Channel { get; set; } = "";  // whatsapp / sms
+        public string Phone { get; set; } = "";
+        public string Message { get; set; } = "";
+        public bool IsSuccess { get; set; }
+        public string? ErrorMessage { get; set; }
+        public DateTime SentAt { get; set; }
+
+        public Appointment? Appointment { get; set; }
     }
 }
 

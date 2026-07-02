@@ -62,6 +62,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IClinicContext, ClinicContext>();
 builder.Services.AddScoped<SubscriptionService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddHostedService<ReminderBackgroundService>();
 
 builder.Services.AddCors(options =>
 {
