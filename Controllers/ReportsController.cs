@@ -514,6 +514,185 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
+
+        // ═══════════════════════════════════════
+        // GET: api/reports/detail
+        // تقرير تفصيلي مرن بفلاتر متعددة
+        // ?date=2026-07-01 &from= &to= &doctorId= &status= &patientId= &page= &pageSize=
+        // ═══════════════════════════════════════
+        [HttpGet("detail")]
+        public async Task<ActionResult> GetDetail(
+            [FromQuery] string? date,
+            [FromQuery] string? from,
+            [FromQuery] string? to,
+            [FromQuery] Guid? doctorId,
+            [FromQuery] string? status,
+            [FromQuery] Guid? patientId,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
+        {
+            if (!_clinicContext.HasPermission("reports.view")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var clinicId = _clinicContext.ClinicId.Value;
+            var query = _db.Appointments
+                .Include(a => a.Doctor)
+                .Include(a => a.Patient)
+                .Where(a => a.ClinicId == clinicId && !a.isdeleted);
+
+            // ── فلتر التاريخ ──
+            if (!string.IsNullOrEmpty(date) && DateTime.TryParse(date, out var d))
+            {
+                query = query.Where(a => a.AppointmentDate.Date == d.Date);
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var fd))
+                    query = query.Where(a => a.AppointmentDate >= fd);
+                if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to, out var td))
+                    query = query.Where(a => a.AppointmentDate < td.Date.AddDays(1));
+            }
+
+            // ── فلتر الطبيب ──
+            if (doctorId.HasValue)
+                query = query.Where(a => a.DoctorId == doctorId);
+
+            // ── فلتر الحالة ──
+            if (!string.IsNullOrEmpty(status))
+                query = query.Where(a => a.Status == status);
+
+            // ── فلتر المريض ──
+            if (patientId.HasValue)
+                query = query.Where(a => a.PatientId == patientId);
+
+            var total = await query.CountAsync();
+            var totalRevenue = await query
+                .Where(a => a.Status == "completed")
+                .SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0;
+
+            var items = await query
+                .OrderByDescending(a => a.AppointmentDate)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(a => new {
+                    a.Id,
+                    patientName = a.Patient != null ? a.Patient.FullName : "—",
+                    patientNumber = a.Patient != null ? a.Patient.PatientNumber : 0,
+                    doctorName = a.Doctor != null ? a.Doctor.FullName : "—",
+                    doctorSpecialty = a.Doctor != null ? a.Doctor.Specialty : "",
+                    date = a.AppointmentDate.ToString("yyyy-MM-dd"),
+                    time = a.AppointmentDate.ToString("HH:mm"),
+                    a.Status,
+                    a.Type,
+                    a.Price,
+                    checkIn = a.CheckInTime.HasValue ? a.CheckInTime.Value.ToString("HH:mm") : null,
+                    checkOut = a.CheckOutTime.HasValue ? a.CheckOutTime.Value.ToString("HH:mm") : null,
+                    durationMin = a.CheckInTime.HasValue && a.CheckOutTime.HasValue
+                        ? (int)(a.CheckOutTime.Value - a.CheckInTime.Value).TotalMinutes : (int?)null,
+                    a.Notes,
+                })
+                .ToListAsync();
+
+            // ── ملخص الفلترة ──
+            var summary = new
+            {
+                total,
+                totalRevenue,
+                completed = await query.CountAsync(a => a.Status == "completed"),
+                cancelled = await query.CountAsync(a => a.Status == "cancelled"),
+                scheduled = await query.CountAsync(a => a.Status == "scheduled" || a.Status == "confirmed"),
+                pages = (int)Math.Ceiling((double)total / pageSize),
+                page,
+                pageSize,
+            };
+
+            return Ok(new { summary, items });
+        }
+
+        // ═══════════════════════════════════════
+        // GET: api/reports/patients-detail
+        // تقرير تفصيلي للمرضى مع إحصائيات زياراتهم
+        // ?search= &doctorId= &from= &to= &page= &pageSize=
+        // ═══════════════════════════════════════
+        [HttpGet("patients-detail")]
+        public async Task<ActionResult> GetPatientsDetail(
+            [FromQuery] string? search,
+            [FromQuery] Guid? doctorId,
+            [FromQuery] string? from,
+            [FromQuery] string? to,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
+        {
+            if (!_clinicContext.HasPermission("reports.view")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var clinicId = _clinicContext.ClinicId.Value;
+
+            var patientsQuery = _db.Patients
+                .Where(p => p.ClinicId == clinicId && !p.isdeleted);
+
+            if (!string.IsNullOrEmpty(search))
+                patientsQuery = patientsQuery.Where(p =>
+                    p.FullName.Contains(search) ||
+                    (p.Phone != null && p.Phone.Contains(search)) ||
+                    p.PatientNumber.ToString().Contains(search));
+
+            var total = await patientsQuery.CountAsync();
+            var patients = await patientsQuery
+                .OrderByDescending(p => p.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var patientIds = patients.Select(p => p.Id).ToList();
+
+            // جلب المواعيد لهؤلاء المرضى
+            var apptsQuery = _db.Appointments
+                .Where(a => a.ClinicId == clinicId && !a.isdeleted && patientIds.Contains(a.PatientId));
+
+            if (doctorId.HasValue)
+                apptsQuery = apptsQuery.Where(a => a.DoctorId == doctorId);
+            if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var fd))
+                apptsQuery = apptsQuery.Where(a => a.AppointmentDate >= fd);
+            if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to, out var td))
+                apptsQuery = apptsQuery.Where(a => a.AppointmentDate < td.Date.AddDays(1));
+
+            var appts = await apptsQuery
+                .Include(a => a.Doctor)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            var items = patients.Select(p => {
+                var pAppts = appts.Where(a => a.PatientId == p.Id).ToList();
+                return new
+                {
+                    p.Id,
+                    p.PatientNumber,
+                    p.FullName,
+                    p.Phone,
+                    p.Gender,
+                    age = p.DateOfBirth.HasValue ? (now - p.DateOfBirth.Value).Days / 365 : (int?)null,
+                    registeredAt = p.CreatedAt.ToString("yyyy-MM-dd"),
+                    totalVisits = pAppts.Count,
+                    completedVisits = pAppts.Count(a => a.Status == "completed"),
+                    cancelledVisits = pAppts.Count(a => a.Status == "cancelled"),
+                    totalSpent = pAppts.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0),
+                    firstVisit = pAppts.Any() ? pAppts.Min(a => a.AppointmentDate).ToString("yyyy-MM-dd") : null,
+                    lastVisit = pAppts.Any() ? pAppts.Max(a => a.AppointmentDate).ToString("yyyy-MM-dd") : null,
+                    doctors = pAppts.Where(a => a.Doctor != null).Select(a => a.Doctor!.FullName).Distinct().ToList(),
+                };
+            }).ToList();
+
+            return Ok(new
+            {
+                total,
+                pages = (int)Math.Ceiling((double)total / pageSize),
+                page,
+                pageSize,
+                items,
+            });
+        }
+
         // ─── دالة مساعدة ───
         private static string DayNameAr(DayOfWeek day) => day switch
         {
