@@ -4,6 +4,7 @@ using ClinicSaaS.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicSaaS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260703181544_AddInsurance")]
+    partial class AddInsurance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -436,6 +439,8 @@ namespace ClinicSaaS.API.Migrations
                         .HasColumnType("decimal(10,3)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AppointmentId");
 
                     b.HasIndex("PatientId");
 
@@ -1145,6 +1150,11 @@ namespace ClinicSaaS.API.Migrations
 
             modelBuilder.Entity("ClinicSaaS.API.Data.InsuranceClaim", b =>
                 {
+                    b.HasOne("ClinicSaaS.API.Data.Appointment", "Appointment")
+                        .WithMany()
+                        .HasForeignKey("AppointmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
@@ -1156,6 +1166,8 @@ namespace ClinicSaaS.API.Migrations
                         .HasForeignKey("PatientInsuranceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Appointment");
 
                     b.Navigation("Patient");
 

@@ -30,7 +30,11 @@ namespace ClinicSaaS.API.Data
         public DbSet<VisitNote> VisitNotes { get; set; }
         public DbSet<Absence> Absences { get; set; }
         public DbSet<NotificationLog> NotificationLogs { get; set; }
-
+        // ══ Insurance ══
+        public DbSet<InsuranceCompany> InsuranceCompanies { get; set; }
+        public DbSet<PatientInsurance> PatientInsurances { get; set; }
+        public DbSet<InsuranceClaim> InsuranceClaims { get; set; }
+        public DbSet<PaymentDetail> PaymentDetails { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -89,10 +93,10 @@ namespace ClinicSaaS.API.Data
                 .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<VisitNote>()
-    .HasOne(v => v.Clinic)
-    .WithMany()
-    .HasForeignKey(v => v.ClinicId)
-    .OnDelete(DeleteBehavior.NoAction);
+                .HasOne(v => v.Clinic)
+                .WithMany()
+                .HasForeignKey(v => v.ClinicId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<VisitNote>()
                 .HasOne(v => v.Patient)
@@ -119,17 +123,56 @@ namespace ClinicSaaS.API.Data
                 .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<Absence>()
-    .HasOne(a => a.Clinic)
-    .WithMany()
-    .HasForeignKey(a => a.ClinicId)
-    .OnDelete(DeleteBehavior.NoAction);
+                .HasOne(a => a.Clinic)
+                .WithMany()
+                .HasForeignKey(a => a.ClinicId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<Absence>()
                 .HasOne(a => a.Doctor)
                 .WithMany()
                 .HasForeignKey(a => a.DoctorId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<InsuranceCompany>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.CoverageRate).HasPrecision(5, 2);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<PatientInsurance>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.CoverageRate).HasPrecision(5, 2);
+                e.Property(x => x.MaxCoverageAmount).HasPrecision(10, 3);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.InsuranceCompany).WithMany(c => c.PatientInsurances).HasForeignKey(x => x.InsuranceCompanyId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<InsuranceClaim>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.TotalAmount).HasPrecision(10, 3);
+                e.Property(x => x.InsuranceAmount).HasPrecision(10, 3);
+                e.Property(x => x.PatientAmount).HasPrecision(10, 3);
+                e.Property(x => x.CoverageRate).HasPrecision(5, 2);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.PatientInsurance).WithMany(p => p.Claims).HasForeignKey(x => x.PatientInsuranceId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<PaymentDetail>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.TotalAmount).HasPrecision(10, 3);
+                e.Property(x => x.InsuranceAmount).HasPrecision(10, 3);
+                e.Property(x => x.PatientAmount).HasPrecision(10, 3);
+                e.Property(x => x.AmountPaid).HasPrecision(10, 3);
+                e.Property(x => x.InsuranceBalance).HasPrecision(10, 3);
+                e.Ignore(x => x.PatientBalance); // computed property
+                e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.InsuranceClaim).WithMany().HasForeignKey(x => x.InsuranceClaimId).OnDelete(DeleteBehavior.Restrict);
+            });
         }
+
+
     }
 
     //جدول البيانات (Entities) تمثل الجداول في قاعدة البيانات. هذا الكلاس يمثل جدول المرضى.
@@ -536,6 +579,115 @@ namespace ClinicSaaS.API.Data
         public DateTime SentAt { get; set; }
 
         public Appointment? Appointment { get; set; }
+    }
+
+
+          // ══════════════════════════════════════
+        // شركة التأمين
+        // ══════════════════════════════════════
+        public class InsuranceCompany
+        {
+            public Guid Id { get; set; }
+            public Guid ClinicId { get; set; }
+            public string Name { get; set; } = "";       // Mediterranean، AXA، ...
+            public string? NameEn { get; set; }
+            public string? Phone { get; set; }
+            public string? Email { get; set; }
+            public string? ContactName { get; set; }             // اسم المسؤول
+            public decimal CoverageRate { get; set; } = 80;     // نسبة التغطية الافتراضية %
+            public bool IsActive { get; set; } = true;
+            public DateTime CreatedAt { get; set; }
+
+            public Clinic? Clinic { get; set; }
+            public ICollection<PatientInsurance> PatientInsurances { get; set; } = new List<PatientInsurance>();
+        }
+
+        // ══════════════════════════════════════
+        // بوليصة تأمين المريض
+        // ══════════════════════════════════════
+        public class PatientInsurance
+        {
+            public Guid Id { get; set; }
+            public Guid PatientId { get; set; }
+            public Guid ClinicId { get; set; }
+            public Guid InsuranceCompanyId { get; set; }
+            public string PolicyNumber { get; set; } = ""; // رقم البوليصة
+            public string? MembershipNumber { get; set; }       // رقم العضوية
+            public decimal CoverageRate { get; set; } = 80; // نسبة التغطية %
+            public decimal? MaxCoverageAmount { get; set; }      // الحد الأقصى للتغطية السنوية
+            public DateTime StartDate { get; set; }
+            public DateTime EndDate { get; set; }
+            public bool IsActive { get; set; } = true;
+            public bool IsPrimary { get; set; } = true; // البوليصة الرئيسية
+            public string? Notes { get; set; }
+            public DateTime CreatedAt { get; set; }
+
+            public Patient? Patient { get; set; }
+            public InsuranceCompany? InsuranceCompany { get; set; }
+            public ICollection<InsuranceClaim> Claims { get; set; } = new List<InsuranceClaim>();
+        }
+
+        // ══════════════════════════════════════
+        // مطالبة التأمين
+        // ══════════════════════════════════════
+        public class InsuranceClaim
+        {
+            public Guid Id { get; set; }
+            public Guid ClinicId { get; set; }
+            public Guid PatientId { get; set; }
+            public Guid PatientInsuranceId { get; set; }
+            public Guid? AppointmentId { get; set; }
+            public string ClaimNumber { get; set; } = ""; // رقم المطالبة
+            public decimal TotalAmount { get; set; }       // إجمالي سعر الخدمة
+            public decimal CoverageRate { get; set; }       // نسبة التغطية %
+            public decimal InsuranceAmount { get; set; }       // ما تدفعه شركة التأمين
+            public decimal PatientAmount { get; set; }       // ما يدفعه المريض
+            public string Status { get; set; } = "pending"; // pending/submitted/approved/rejected/paid
+            public string? ApprovalNumber { get; set; }       // رقم الموافقة المسبقة
+            public string? RejectionReason { get; set; }       // سبب الرفض
+            public string? Notes { get; set; }
+            public DateTime ServiceDate { get; set; }
+            public DateTime? SubmittedAt { get; set; }
+            public DateTime? ApprovedAt { get; set; }
+            public DateTime? PaidAt { get; set; }
+            public DateTime CreatedAt { get; set; }
+
+            public Patient? Patient { get; set; }
+            public PatientInsurance? PatientInsurance { get; set; }
+        }
+    public class PaymentDetail
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid AppointmentId { get; set; }
+        public Guid PatientId { get; set; }
+
+        // ── الأسعار ──
+        public decimal TotalAmount { get; set; }        // سعر الزيارة الكامل
+        public decimal InsuranceAmount { get; set; }    // حصة التأمين
+        public decimal PatientAmount { get; set; }      // صافي ما يدفعه المريض
+
+        // ── الدفع ──
+        public decimal AmountPaid { get; set; }         // المبلغ المدفوع فعلاً
+        public string PaymentMethod { get; set; } = "cash"; // cash/card/insurance
+        public DateTime? PaidAt { get; set; }
+        public bool IsPaid { get; set; } = false;
+
+        // ── المستحقات ──
+        //양수 = مبلغ مستحق على المريض | سالب = مبلغ مستحق للمريض (رد)
+        public decimal PatientBalance => AmountPaid - PatientAmount;
+        //양수 = مبلغ مستحق من التأمين | سالب = تم استلامه
+        public decimal InsuranceBalance { get; set; }   // ما تبقى من التأمين لم يُستلم بعد
+
+        public Guid? InsuranceClaimId { get; set; }
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // Navigation
+        public Clinic? Clinic { get; set; }
+        public Appointment? Appointment { get; set; }
+        public Patient? Patient { get; set; }
+        public InsuranceClaim? InsuranceClaim { get; set; }
     }
 }
 

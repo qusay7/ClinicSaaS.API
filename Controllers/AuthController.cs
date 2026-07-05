@@ -202,11 +202,11 @@ namespace ClinicSaaS.API.Controllers
         {
             var permissions = new[]
             {
-                new { Name="patients.view",        Module="patients",      DisplayName="عرض المرضى",       Group="المرضى"       },
+                new { Name="patients.view",         Module="patients",      DisplayName="عرض المرضى",       Group="المرضى"       },
                 new { Name="patients.create",       Module="patients",      DisplayName="إضافة مريض",       Group="المرضى"       },
                 new { Name="patients.edit",         Module="patients",      DisplayName="تعديل مريض",       Group="المرضى"       },
                 new { Name="patients.delete",       Module="patients",      DisplayName="حذف مريض",         Group="المرضى"       },
-                new { Name="doctors.view",          Module="doctors",       DisplayName="عرض الأطباء",      Group="الأطباء"      },
+                new { Name="doctors.view",          Module="doctors",       DisplayName="عرض الأطباء",       Group="الأطباء"      },
                 new { Name="doctors.create",        Module="doctors",       DisplayName="إضافة طبيب",       Group="الأطباء"      },
                 new { Name="doctors.edit",          Module="doctors",       DisplayName="تعديل طبيب",       Group="الأطباء"      },
                 new { Name="doctors.delete",        Module="doctors",       DisplayName="حذف طبيب",         Group="الأطباء"      },
@@ -218,10 +218,11 @@ namespace ClinicSaaS.API.Controllers
                 new { Name="schedules.manage",      Module="schedules",     DisplayName="إدارة الجداول",    Group="الجداول"      },
                 new { Name="users.view",            Module="users",         DisplayName="عرض المستخدمين",   Group="المستخدمون"   },
                 new { Name="users.create",          Module="users",         DisplayName="إضافة مستخدم",     Group="المستخدمون"   },
-                new { Name="departments.manage",    Module="departments",   DisplayName="إدارة الأقسام",    Group="الأقسام"      },
-                new { Name="settings.view",         Module="settings",      DisplayName="عرض الإعدادات",    Group="الإعدادات"    },
-                new { Name="settings.edit",         Module="settings",      DisplayName="تعديل الإعدادات",  Group="الإعدادات"    },
-                new { Name="reports.view",          Module="reports",       DisplayName="عرض التقارير",     Group="التقارير"     },
+                new { Name="departments.manage",    Module="departments",   DisplayName="إدارة الأقسام",     Group="الأقسام"      },
+                new { Name="settings.view",         Module="settings",      DisplayName="عرض الإعدادات",     Group="الإعدادات"    },
+                new { Name="settings.edit",         Module="settings",      DisplayName="تعديل الإعدادات",   Group="الإعدادات"    },
+                new { Name="reports.view",          Module="reports",       DisplayName="عرض التقارير",          Group="التقارير"     },
+                new { Name="insurance.view",        Module="insurance",     DisplayName="عرض التأمين الصحي",     Group="'التأمين "     },
             };
 
             int added = 0;

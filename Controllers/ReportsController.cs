@@ -514,7 +514,7 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
-
+ 
         // ═══════════════════════════════════════
         // GET: api/reports/detail
         // تقرير تفصيلي مرن بفلاتر متعددة
