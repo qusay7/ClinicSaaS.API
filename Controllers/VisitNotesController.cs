@@ -83,62 +83,73 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
-        // POST: api/visitnotes
-        // إضافة ملاحظة زيارة
-        [HttpPost]
-        public async Task<ActionResult> Create([FromBody] CreateVisitNoteDto dto)
-        {
-            if (_clinicContext.ClinicId == null) return Unauthorized();
+		// POST: api/visitnotes
+		// إضافة ملاحظة زيارة
+		// POST: api/visitnotes
+		// إضافة ملاحظة زيارة
+		[HttpPost]
+		public async Task<ActionResult> Create([FromBody] CreateVisitNoteDto dto)
+		{
+			if (!_clinicContext.HasPermission("visitnotes.create")) return Forbid();
+			if (_clinicContext.ClinicId == null) return Unauthorized();
 
-            var note = new VisitNote
-            {
-                Id = Guid.NewGuid(),
-                ClinicId = _clinicContext.ClinicId.Value,
-                PatientId = dto.PatientId,
-                AppointmentId = dto.AppointmentId,
-                QueueEntryId = dto.QueueEntryId,
-                DoctorId = dto.DoctorId,
-                Diagnosis = dto.Diagnosis,
-                Prescription = dto.Prescription,
-                Tests = dto.Tests,
-                Notes = dto.Notes,
-                NextVisitDate = dto.NextVisitDate,
-                Cost = dto.Cost,
-                CreatedAt = DateTime.UtcNow,
-            };
+			// ✅ تحقق أن المريض ينتمي لنفس العيادة
+			var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.IsDeleted);
+			if (patient == null) return BadRequest("المريض غير موجود");
+			if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            _db.VisitNotes.Add(note);
-            await _db.SaveChangesAsync();
+			var note = new VisitNote
+			{
+				Id = Guid.NewGuid(),
+				ClinicId = _clinicContext.ClinicId.Value,
+				PatientId = dto.PatientId,
+				AppointmentId = dto.AppointmentId,
+				QueueEntryId = dto.QueueEntryId,
+				DoctorId = dto.DoctorId,
+				Diagnosis = dto.Diagnosis,
+				Prescription = dto.Prescription,
+				Tests = dto.Tests,
+				Notes = dto.Notes,
+				NextVisitDate = dto.NextVisitDate,
+				Cost = dto.Cost,
+				CreatedAt = DateTime.UtcNow,
+			};
 
-            return Ok(new { note.Id, message = "تم حفظ ملاحظات الزيارة" });
-        }
+			_db.VisitNotes.Add(note);
+			await _db.SaveChangesAsync();
 
-        // PUT: api/visitnotes/{id}
-        // تعديل ملاحظة زيارة
-        [HttpPut("{id}")]
-        public async Task<ActionResult> Update(Guid id, [FromBody] CreateVisitNoteDto dto)
-        {
-            if (_clinicContext.ClinicId == null) return Unauthorized();
+			return Ok(new { note.Id, message = "تم حفظ ملاحظات الزيارة" });
+		}
 
-            var note = await _db.VisitNotes
-                .FirstOrDefaultAsync(v => v.Id == id
-                    && v.ClinicId == _clinicContext.ClinicId
-                    && !v.IsDeleted);
+		// PUT: api/visitnotes/{id}
+		// تعديل ملاحظة زيارة
+		// PUT: api/visitnotes/{id}
+		// تعديل ملاحظة زيارة
+		[HttpPut("{id}")]
+		public async Task<ActionResult> Update(Guid id, [FromBody] CreateVisitNoteDto dto)
+		{
+			if (!_clinicContext.HasPermission("visitnotes.edit")) return Forbid();
+			if (_clinicContext.ClinicId == null) return Unauthorized();
 
-            if (note == null) return NotFound();
+			var note = await _db.VisitNotes
+				.FirstOrDefaultAsync(v => v.Id == id
+					&& v.ClinicId == _clinicContext.ClinicId
+					&& !v.IsDeleted);
 
-            note.Diagnosis = dto.Diagnosis;
-            note.Prescription = dto.Prescription;
-            note.Tests = dto.Tests;
-            note.Notes = dto.Notes;
-            note.NextVisitDate = dto.NextVisitDate;
-            note.Cost = dto.Cost;
+			if (note == null) return NotFound();
 
-            await _db.SaveChangesAsync();
+			note.Diagnosis = dto.Diagnosis;
+			note.Prescription = dto.Prescription;
+			note.Tests = dto.Tests;
+			note.Notes = dto.Notes;
+			note.NextVisitDate = dto.NextVisitDate;
+			note.Cost = dto.Cost;
 
-            return Ok(new { message = "تم تحديث ملاحظات الزيارة" });
-        }
-    }
+			await _db.SaveChangesAsync();
+
+			return Ok(new { message = "تم تحديث ملاحظات الزيارة" });
+		}
+	}
 
     public class CreateVisitNoteDto
     {

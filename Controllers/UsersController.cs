@@ -83,7 +83,6 @@ namespace ClinicSaaS.API.Controllers
                 if (!allowedRoles.Contains(dto.Role))
                     return BadRequest("يمكنك فقط إنشاء Doctor أو Receptionist");
 
-
                 dto.ClinicId = _clinicContext.ClinicId;
             }
             else if (_clinicContext.Role == "ClinicStaff")
@@ -109,6 +108,11 @@ namespace ClinicSaaS.API.Controllers
                 if (usernameExists) return BadRequest("اسم المستخدم مستخدم مسبقاً");
             }
 
+            // ✅ منع تكرار اسم المستخدم بنفس العيادة
+            var nameExists = await _db.Users.AnyAsync(u => u.ClinicId == dto.ClinicId && u.FullName == dto.FullName);
+            if (nameExists)
+                return BadRequest("يوجد مستخدم بنفس الاسم مسبقاً");
+
             var user = new User
             {
                 Id = Guid.NewGuid(),
@@ -120,41 +124,63 @@ namespace ClinicSaaS.API.Controllers
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 Role = dto.Role,
                 ClinicId = dto.ClinicId,
-                DepartmentId = dto.DepartmentId, // ✅
-
+                DepartmentId = dto.DepartmentId,
             };
 
-            _db.Users.Add(user);
-            await _db.SaveChangesAsync();
-
-            // ✅ إنشاء بطاقة طبيب تلقائياً
-            if (dto.Role == "Doctor" && dto.ClinicId.HasValue)
+            // ✅ نلف كل العمليات المترابطة (User + ربط Staff + RoleId) بمعاملة واحدة
+            // عشان لو صار خطأ بمنتصف الطريق، ما يبقى مستخدم "ناقص" بقاعدة البيانات
+            using var transaction = await _db.Database.BeginTransactionAsync();
+            try
             {
-                var doctor = new Doctor
+                _db.Users.Add(user);
+                await _db.SaveChangesAsync();
+
+                // ✅ ربط المستخدم ببطاقة موظف موجودة (بدل إنشاء Doctor تلقائياً كما كان سابقاً)
+                // الآن بطاقة Staff هي مصدر الحقيقة — أي حساب دخول لازم يرتبط بموظف موجود مسبقاً،
+                // وإذا كان ذلك الموظف طبيباً، فهو أصلاً مرتبط ببطاقة Doctor من خلال Staff.DoctorId.
+                if (dto.StaffId.HasValue)
                 {
-                    Id = Guid.NewGuid(),
-                    CreatedAt = DateTime.UtcNow,
-                    IsActive = true,
-                    isdeleted = false,
-                    ClinicId = dto.ClinicId.Value,
-                    FullName = dto.FullName,
-                    Email = dto.Email,
-                    DepartmentId = dto.DepartmentId, // ✅ أضف
-                    UserId = user.Id
-                };
-                _db.Doctors.Add(doctor);
-                await _db.SaveChangesAsync();
+                    var staff = await _db.Staff
+                        .FirstOrDefaultAsync(s => s.Id == dto.StaffId.Value && s.ClinicId == dto.ClinicId);
+
+                    if (staff == null)
+                    {
+                        await transaction.RollbackAsync();
+                        return BadRequest("بطاقة الموظف المحددة غير موجودة أو لا تتبع لهذه العيادة");
+                    }
+
+                    if (staff.UserId.HasValue && staff.UserId != user.Id)
+                    {
+                        await transaction.RollbackAsync();
+                        return BadRequest("هذا الموظف مرتبط بالفعل بحساب دخول آخر — قم بفك الربط أولاً");
+                    }
+
+                    staff.UserId = user.Id;
+                    await _db.SaveChangesAsync();
+                }
+
+                // ✅ ربط الدور لجميع الأدوار
+                var role = await _db.Roles
+                    .FirstOrDefaultAsync(r => r.Name == dto.Role
+                        && r.ClinicId == dto.ClinicId);
+
+                if (role != null)
+                {
+                    user.RoleId = role.Id;
+                    await _db.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
             }
-
-            // ✅ ربط الدور لجميع الأدوار
-            var role = await _db.Roles
-                .FirstOrDefaultAsync(r => r.Name == dto.Role
-                    && r.ClinicId == dto.ClinicId);
-
-            if (role != null)
+            catch (DbUpdateException)
             {
-                user.RoleId = role.Id;
-                await _db.SaveChangesAsync();
+                await transaction.RollbackAsync();
+                return BadRequest("البريد الإلكتروني أو اسم المستخدم مستخدم بالفعل");
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
             }
 
             await _db.Entry(user).Reference(u => u.Clinic).LoadAsync();

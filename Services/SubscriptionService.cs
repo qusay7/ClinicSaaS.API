@@ -53,7 +53,7 @@ namespace ClinicSaaS.API.Services
                 return (true, null);
 
             var currentDoctors = await _db.Doctors
-                .CountAsync(d => d.ClinicId == clinicId && !d.isdeleted && d.IsActive);
+                .CountAsync(d => d.ClinicId == clinicId && !d.IsDeleted  && d.IsActive);
 
             if (currentDoctors >= subscription.Plan.MaxDoctors)
                 return (false, $"وصلت للحد الأقصى ({subscription.Plan.MaxDoctors} أطباء) في خطتك");
@@ -75,7 +75,7 @@ namespace ClinicSaaS.API.Services
                 return (true, null);
 
             var currentPatients = await _db.Patients
-                .CountAsync(p => p.ClinicId == clinicId && !p.isdeleted);
+                .CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted );
 
             if (currentPatients >= subscription.Plan.MaxPatients)
                 return (false, $"وصلت للحد الأقصى ({subscription.Plan.MaxPatients} مريض) في خطتك");

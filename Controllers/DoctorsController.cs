@@ -32,7 +32,7 @@ namespace ClinicSaaS.API.Controllers
 
             var query = _db.Doctors
                 .Include(d => d.Department) // ✅ تحميل القسم
-                .Where(d => !d.isdeleted);
+                .Where(d => !d.IsDeleted);
 
             if (!_clinicContext.IsCompanyStaff)
             {
@@ -46,6 +46,52 @@ namespace ClinicSaaS.API.Controllers
             return Ok(doctors.Select(d => ToResponse(d)).ToList());
         }
 
+        // ═══════════════════════════════════════
+        // GET: api/doctors/available-for-staff
+        // ✅ يرجع كل أطباء العيادة، مع اسم الموظف المرتبط بكل طبيب (لو موجود) —
+        // تُستخدم بقائمة "اختيار طبيب موجود" عند إضافة موظف، عشان:
+        //   1) نمنع اختيار طبيب مرتبط بموظف آخر أصلاً
+        //   2) نعرض اسم الموظف المرتبط بوضوح بدل ما يختفي الخيار بصمت
+        // ?excludeStaffId={id} — يُستخدم وقت التعديل، عشان الطبيب المرتبط
+        // بنفس الموظف اللي نعدّله يبقى "متاح" (مو محجوب لأنه مرتبط بنفسه)
+        // ═══════════════════════════════════════
+        [HttpGet("available-for-staff")]
+        public async Task<ActionResult> GetAvailableForStaff([FromQuery] Guid? excludeStaffId)
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+            var clinicId = _clinicContext.ClinicId.Value;
+
+            var doctors = await _db.Doctors
+                .Where(d => d.ClinicId == clinicId && !d.IsDeleted && d.IsActive)
+                .OrderBy(d => d.FullName)
+                .ToListAsync();
+
+            var doctorIds = doctors.Select(d => d.Id).ToList();
+
+            // نجيب كل روابط Staff→Doctor الحالية بضربة وحدة، بدل استعلام لكل طبيب لحاله
+            var links = await _db.Staff
+                .Where(s => s.ClinicId == clinicId && s.DoctorId != null && doctorIds.Contains(s.DoctorId!.Value))
+                .Select(s => new { s.Id, s.FullName, s.DoctorId })
+                .ToListAsync();
+
+            var result = doctors.Select(d =>
+            {
+                var link = links.FirstOrDefault(l => l.DoctorId == d.Id);
+                var isLinkedToAnother = link != null && link.Id != excludeStaffId;
+                return new
+                {
+                    id = d.Id,
+                    fullName = d.FullName,
+                    specialty = d.Specialty,
+                    linkedStaffId = link?.Id,
+                    linkedStaffName = link?.FullName,
+                    isAvailable = !isLinkedToAnother,
+                };
+            });
+
+            return Ok(result);
+        }
+
         // GET: api/doctors/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<DoctorResponseDto>> GetById(Guid id)
@@ -53,7 +99,7 @@ namespace ClinicSaaS.API.Controllers
             var doctor = await _db.Doctors
                 .Include(d => d.Clinic)
                 .Include(d => d.Department) // ✅
-                .FirstOrDefaultAsync(d => d.Id == id && !d.isdeleted);
+                .FirstOrDefaultAsync(d => d.Id == id && !d.IsDeleted);
 
             if (doctor == null)
                 return NotFound();
@@ -83,6 +129,11 @@ namespace ClinicSaaS.API.Controllers
             if (string.IsNullOrWhiteSpace(dto.FullName))
                 return BadRequest("اسم الطبيب مطلوب");
 
+            // ✅ منع تكرار اسم الطبيب بنفس العيادة
+            var nameExists = await _db.Doctors.AnyAsync(d => d.ClinicId == _clinicContext.ClinicId && !d.IsDeleted && d.FullName == dto.FullName);
+            if (nameExists)
+                return BadRequest("يوجد طبيب بنفس الاسم مسبقاً");
+
             // ✅ التحقق أن القسم ينتمي لنفس العيادة
             if (dto.DepartmentId.HasValue)
             {
@@ -99,7 +150,7 @@ namespace ClinicSaaS.API.Controllers
                 Id = Guid.NewGuid(),
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true,
-                isdeleted = false,
+                IsDeleted = false,
                 ClinicId = _clinicContext.ClinicId.Value,
                 FullName = dto.FullName,
                 Specialty = dto.Specialty,
@@ -130,7 +181,7 @@ namespace ClinicSaaS.API.Controllers
             var doctor = await _db.Doctors
                 .Include(d => d.Clinic)
                 .Include(d => d.Department) // ✅
-                .FirstOrDefaultAsync(d => d.Id == id && !d.isdeleted);
+                .FirstOrDefaultAsync(d => d.Id == id && !d.IsDeleted);
 
             if (doctor == null)
                 return NotFound();
@@ -140,6 +191,11 @@ namespace ClinicSaaS.API.Controllers
 
             if (string.IsNullOrWhiteSpace(dto.FullName))
                 return BadRequest("اسم الطبيب مطلوب");
+
+            // ✅ منع تكرار اسم الطبيب بنفس العيادة (باستثناء الطبيب نفسه)
+            var nameExists = await _db.Doctors.AnyAsync(d => d.Id != id && d.ClinicId == doctor.ClinicId && !d.IsDeleted && d.FullName == dto.FullName);
+            if (nameExists)
+                return BadRequest("يوجد طبيب بنفس الاسم مسبقاً");
 
             // ✅ التحقق من القسم
             if (dto.DepartmentId.HasValue)
@@ -175,7 +231,7 @@ namespace ClinicSaaS.API.Controllers
         {
             var doctor = await _db.Doctors.FindAsync(id);
 
-            if (doctor == null || doctor.isdeleted)
+            if (doctor == null || doctor.IsDeleted)
                 return NotFound();
 
             if (!_clinicContext.IsSuperAdmin && doctor.ClinicId != _clinicContext.ClinicId)
@@ -200,13 +256,24 @@ namespace ClinicSaaS.API.Controllers
 
             var doctor = await _db.Doctors.FindAsync(id);
 
-            if (doctor == null || doctor.isdeleted)
+            if (doctor == null || doctor.IsDeleted)
                 return NotFound();
 
             if (!_clinicContext.IsSuperAdmin && doctor.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            doctor.isdeleted = true;
+            // ✅ امنع الحذف لو عنده مواعيد مستقبلية غير ملغاة
+            var hasUpcomingAppointments = await _db.Appointments.AnyAsync(a =>
+                a.DoctorId == id &&
+                !a.IsDeleted &&
+                a.Status != "cancelled" &&
+                a.AppointmentDate > DateTime.UtcNow);
+
+            if (hasUpcomingAppointments)
+                return BadRequest("لا يمكن حذف الطبيب لوجود مواعيد مستقبلية مرتبطة به — ألغِ أو أعد جدولة هذه المواعيد أولاً");
+
+            doctor.IsDeleted = true;
+            doctor.IsActive = false;   // ✅ نوقفه كمان عشان ما يظهر بأي قائمة اختيار
             await _db.SaveChangesAsync();
             return NoContent();
         }

@@ -141,7 +141,7 @@ namespace ClinicSaaS.API.Services
                 .Include(a => a.Patient)
                 .Include(a => a.Doctor)
                 .Include(a => a.Clinic)
-                .Where(a => !a.isdeleted
+                .Where(a => !a.IsDeleted
                     && a.Status != "cancelled"
                     && a.Status != "completed"
                     && a.AppointmentDate >= tomorrow
@@ -209,7 +209,7 @@ namespace ClinicSaaS.API.Services
                 .Include(a => a.Patient)
                 .Include(a => a.Doctor)
                 .Include(a => a.Clinic)
-                .Where(a => !a.isdeleted
+                .Where(a => !a.IsDeleted
                     && a.Status != "cancelled"
                     && a.Status != "completed"
                     && a.AppointmentDate >= fromUtc

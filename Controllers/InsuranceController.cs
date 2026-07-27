@@ -106,7 +106,8 @@ namespace ClinicSaaS.API.Controllers
             var hasPatients = await _db.PatientInsurances.AnyAsync(p => p.InsuranceCompanyId == id);
             if (hasPatients)
                 return BadRequest(Msg(lang, "لا يمكن حذف شركة مرتبطة بمرضى", "Cannot delete company linked to patients"));
-            _db.InsuranceCompanies.Remove(company);
+            company.IsDeleted = true;
+            company.IsActive = false;
             await _db.SaveChangesAsync();
             return Ok(new { message = Msg(lang, "تم الحذف", "Deleted") });
         }
@@ -199,7 +200,8 @@ namespace ClinicSaaS.API.Controllers
             var hasClaims = await _db.InsuranceClaims.AnyAsync(c => c.PatientInsuranceId == id);
             if (hasClaims)
                 return BadRequest(Msg(lang, "لا يمكن حذف بوليصة مرتبطة بمطالبات", "Cannot delete policy linked to claims"));
-            _db.PatientInsurances.Remove(insurance);
+            insurance.IsDeleted = true;
+            insurance.IsActive = false;
             await _db.SaveChangesAsync();
             return Ok(new { message = Msg(lang, "تم الحذف", "Deleted") });
         }
@@ -306,7 +308,13 @@ namespace ClinicSaaS.API.Controllers
 
             if (insurance.EndDate < DateTime.UtcNow)
                 return BadRequest(Msg(lang, "بوليصة التأمين منتهية الصلاحية", "Insurance policy is expired"));
-
+            if (dto.AppointmentId.HasValue)
+            {
+                var duplicateExists = await _db.InsuranceClaims.AnyAsync(c =>
+                    c.AppointmentId == dto.AppointmentId && c.ClinicId == _clinicContext.ClinicId);
+                if (duplicateExists)
+                    return BadRequest(Msg(lang, "توجد مطالبة تأمين لهذا الموعد مسبقاً", "An insurance claim already exists for this appointment"));
+            }
             var insuranceAmount = Math.Round(dto.TotalAmount * insurance.CoverageRate / 100, 3);
             var patientAmount = dto.TotalAmount - insuranceAmount;
 

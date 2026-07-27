@@ -151,7 +151,7 @@ namespace ClinicSaaS.API.Migrations
                     Gender = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     stopped = table.Column<bool>(type: "bit", nullable: false),
-                    isdeleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsDeleted  = table.Column<bool>(type: "bit", nullable: false),
                     Notes = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Notes2 = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Notes3 = table.Column<string>(type: "nvarchar(max)", nullable: true),
@@ -301,7 +301,7 @@ namespace ClinicSaaS.API.Migrations
                     Notes = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    isdeleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsDeleted  = table.Column<bool>(type: "bit", nullable: false),
                     ClinicId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     UserId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     DepartmentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
@@ -369,7 +369,7 @@ namespace ClinicSaaS.API.Migrations
                     Notes2 = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Notes3 = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    isdeleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsDeleted  = table.Column<bool>(type: "bit", nullable: false),
                     ClinicId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>

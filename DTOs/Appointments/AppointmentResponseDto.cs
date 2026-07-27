@@ -20,5 +20,9 @@
         public DateTime CreatedAt { get; set; }
         public DateTime? CheckInTime { get; set; }   // ✅ وقت الدخول
         public DateTime? CheckOutTime { get; set; }  // ✅ وقت الخروج
+        public decimal? DoctorCommissionAmount { get; set; }
+        public bool? IsPaid { get; set; }
+        public decimal? AmountPaid { get; set; }
+        public decimal? PatientBalance { get; set; }
     }
 }

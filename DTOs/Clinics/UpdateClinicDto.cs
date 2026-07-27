@@ -12,5 +12,6 @@
         public string? OwnerPhone { get; set; }
         public string? OwnerEmail { get; set; }
         public string? TaxNumber { get; set; }
+        public string? TimeZone { get; set; }
     }
 }

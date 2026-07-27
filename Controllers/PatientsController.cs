@@ -28,7 +28,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<PatientResponseDto>>> GetAll()
         {
-            var query = _db.Patients.Where(p => !p.isdeleted);
+            var query = _db.Patients.Where(p => !p.IsDeleted );
 
             if (!_clinicContext.IsCompanyStaff)
             {
@@ -44,14 +44,14 @@ namespace ClinicSaaS.API.Controllers
                     var doctorRecord = await _db.Doctors
                         .FirstOrDefaultAsync(d => d.UserId == _clinicContext.UserId
                             && d.ClinicId == _clinicContext.ClinicId
-                            && !d.isdeleted);
+                            && !d.IsDeleted );
 
                     if (doctorRecord != null)
                     {
                         var patientIds = await _db.Appointments
                             .Where(a => a.DoctorId == doctorRecord.Id  // ✅ doctorRecord.Id وليس UserId
                                 && a.ClinicId == _clinicContext.ClinicId
-                                && !a.isdeleted)
+                                && !a.IsDeleted )
                             .Select(a => a.PatientId)
                             .Distinct()
                             .ToListAsync();
@@ -78,7 +78,7 @@ namespace ClinicSaaS.API.Controllers
         {
             var patient = await _db.Patients.FindAsync(id);
 
-            if (patient == null || patient.isdeleted)
+            if (patient == null || patient.IsDeleted )
                 return NotFound();
 
             // ✅ تحقق أن المريض ينتمي لنفس العيادة
@@ -88,81 +88,90 @@ namespace ClinicSaaS.API.Controllers
             return Ok(ToResponse(patient));
         }
 
-        // POST: api/patients
-        // POST
-        [HttpPost]
-        public async Task<ActionResult<PatientResponseDto>> Create([FromBody] CreatePatientDto model)
-        {
-            // ✅ تحقق من الصلاحية
-            if (!_clinicContext.HasPermission("patients.create"))
-                return Forbid();
+		// POST: api/patients
+		// POST
+		[HttpPost]
+		public async Task<ActionResult<PatientResponseDto>> Create([FromBody] CreatePatientDto model)
+		{
+			if (!_clinicContext.HasPermission("patients.create"))
+				return Forbid();
 
-            if (_clinicContext.IsSuperAdmin)
-                return BadRequest("SuperAdmin لا يستطيع إضافة مرضى مباشرة");
+			if (_clinicContext.IsSuperAdmin)
+				return BadRequest("SuperAdmin لا يستطيع إضافة مرضى مباشرة");
 
-            if (_clinicContext.ClinicId == null)
-                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+			if (_clinicContext.ClinicId == null)
+				return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
 
-  
-            var (canAdd, error) = await _subscriptionService.CanAddPatient(_clinicContext.ClinicId.Value);
-            if (!canAdd) return BadRequest(error);
+			var (canAdd, error) = await _subscriptionService.CanAddPatient(_clinicContext.ClinicId.Value);
+			if (!canAdd) return BadRequest(error);
 
- 
+			if (string.IsNullOrWhiteSpace(model.FullName))
+				return BadRequest("FullName is required");
 
-            if (string.IsNullOrWhiteSpace(model.FullName))
-                return BadRequest("FullName is required");
+			const int maxRetries = 3;
+			for (int attempt = 1; attempt <= maxRetries; attempt++)
+			{
+				var patientNumber = await _db.Patients
+					.AnyAsync(p => p.ClinicId == _clinicContext.ClinicId)
+					? await _db.Patients
+						.Where(p => p.ClinicId == _clinicContext.ClinicId)
+						.MaxAsync(p => p.PatientNumber) + 1
+					: 1_000_000;
 
-            // ✅ رقم المريض خاص بكل عيادة
-            var patientNumber = await _db.Patients
-                .AnyAsync(p => p.ClinicId == _clinicContext.ClinicId)
-                ? await _db.Patients
-                    .Where(p => p.ClinicId == _clinicContext.ClinicId)
-                    .MaxAsync(p => p.PatientNumber) + 1
-                : 1_000_000;
+				var patient = new Patient
+				{
+					Id = Guid.NewGuid(),
+					CreatedAt = DateTime.UtcNow,
+					stopped = false,
+					IsDeleted = false,
+					ClinicId = _clinicContext.ClinicId.Value,
+					PatientNumber = patientNumber,
+					FullName = model.FullName,
+					DateOfBirth = model.DateOfBirth,
+					Phone = model.Phone,
+					Phone2 = model.Phone2,
+					Gender = model.Gender,
+					NationalId = model.NationalId,
+					Notes = model.Notes,
+					Notes2 = model.Notes2,
+					Notes3 = model.Notes3,
+					BloodType = model.BloodType,
+					Address = model.Address,
+					Email = model.Email,
+					EmergencyContact = model.EmergencyContact,
+					EmergencyPhone = model.EmergencyPhone,
+					Allergies = model.Allergies,
+					ChronicDiseases = model.ChronicDiseases,
+					Occupation = model.Occupation,
+					MaritalStatus = model.MaritalStatus,
+				};
 
-            var patient = new Patient
-            {
-                Id = Guid.NewGuid(),
-                CreatedAt = DateTime.UtcNow,
-                stopped = false,
-                isdeleted = false,
-                ClinicId = _clinicContext.ClinicId ?? Guid.Empty, // ✅ ربط بالعيادة
-                PatientNumber = patientNumber,
-                FullName = model.FullName,
-                DateOfBirth = model.DateOfBirth,
-                Phone = model.Phone,
-                Phone2 = model.Phone2,
-                Gender = model.Gender,
-                NationalId = model.NationalId,
-                Notes = model.Notes,
-                Notes2 = model.Notes2,
-                Notes3 = model.Notes3,
-                BloodType = model.BloodType,
-                Address = model.Address,
-                Email = model.Email,
-                EmergencyContact = model.EmergencyContact,
-                EmergencyPhone = model.EmergencyPhone,
-                Allergies = model.Allergies,
-                ChronicDiseases = model.ChronicDiseases,
-                Occupation = model.Occupation,
-                MaritalStatus = model.MaritalStatus,
-             };
+				_db.Patients.Add(patient);
 
-            _db.Patients.Add(patient);
-            await _db.SaveChangesAsync();
+				try
+				{
+					await _db.SaveChangesAsync();
+					return CreatedAtAction(nameof(GetById), new { id = patient.Id }, ToResponse(patient));
+				}
+				catch (DbUpdateException) when (attempt < maxRetries)
+				{
+					// تعارض على PatientNumber — أزل التتبع وحاول مرة أخرى برقم جديد
+					_db.Entry(patient).State = EntityState.Detached;
+				}
+			}
 
-            return CreatedAtAction(nameof(GetById), new { id = patient.Id }, ToResponse(patient));
-        }
+			return Conflict("تعذر إنشاء رقم مريض فريد، يرجى المحاولة مرة أخرى");
+		}
 
-        // PUT: api/patients/{id}
-        [HttpPut("{id}")]
+		// PUT: api/patients/{id}
+		[HttpPut("{id}")]
         public async Task<ActionResult<PatientResponseDto>> Update(Guid id, [FromBody] UpdatePatientDto dto)
         {
             if (!_clinicContext.HasPermission("patients.edit"))
                 return Forbid();
             var patient = await _db.Patients.FindAsync(id);
 
-            if (patient == null || patient.isdeleted)
+            if (patient == null || patient.IsDeleted )
                 return NotFound();
 
             // ✅ تحقق أن المريض ينتمي لنفس العيادة
@@ -205,14 +214,14 @@ namespace ClinicSaaS.API.Controllers
 
             var patient = await _db.Patients.FindAsync(id);
 
-            if (patient == null || patient.isdeleted)
+            if (patient == null || patient.IsDeleted )
                 return NotFound();
 
             // ✅ تحقق أن المريض ينتمي لنفس العيادة
             if (!_clinicContext.IsSuperAdmin && patient.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            patient.isdeleted = true;
+            patient.IsDeleted  = true;
             await _db.SaveChangesAsync();
             return NoContent();
         }

@@ -17,6 +17,7 @@ namespace ClinicSaaS.API.DTOs.Appointments
         public string? Notes2 { get; set; }
         public string? Notes3 { get; set; }
         public string? Lang { get; set; }
+        public Guid? TemplateId { get; set; }
     }
 
     // ✅ Converter يقبل كل الصيغ

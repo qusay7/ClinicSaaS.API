@@ -13,37 +13,38 @@ namespace ClinicSaaS.API.Controllers
       [Authorize]                    → أي مستخدم مسجّل
       [Authorize(Roles = "SuperAdmin")] → SuperAdmin فقط ✅
     */
-     
-        [ApiController]
-        [Route("api/[controller]")]
-        [Authorize]// يجب تسجيل الدخول أولاً // هذا الكونترولر يتطلب توثيق المستخدم للوصول إليه
-        public class ClinicsController : ControllerBase
-        {
+
+    [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
+    public class ClinicsController : ControllerBase
+    {
         private readonly ApplicationDbContext _db;
-        private readonly IClinicContext _clinicContext; // ✅ أضف
+        private readonly IClinicContext _clinicContext;
 
         public ClinicsController(ApplicationDbContext db, IClinicContext clinicContext)
         {
             _db = db;
-            _clinicContext = clinicContext; // ✅ أضف
+            _clinicContext = clinicContext;
         }
+
         // GET: api/clinics
         // SuperAdmin فقط — جلب كل العيادات
         [HttpGet]
-            [Authorize(Roles = "SuperAdmin")]
-            public async Task<ActionResult<IEnumerable<ClinicResponseDto>>> GetAll()
-            {
-                var clinics = await _db.Clinics
-                    .OrderByDescending(c => c.CreatedAt)
-                    .ToListAsync();
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult<IEnumerable<ClinicResponseDto>>> GetAll()
+        {
+            var clinics = await _db.Clinics
+                .OrderByDescending(c => c.CreatedAt)
+                .ToListAsync();
 
-                var result = clinics.Select(c => ToResponse(c)).ToList();
-                return Ok(result);
-            }
+            var result = clinics.Select(c => ToResponse(c)).ToList();
+            return Ok(result);
+        }
 
         // GET: api/clinics/{id}
         [HttpGet("{id}")]
-        [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")] // ✅ أضف ClinicAdmin
+        [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
         public async Task<ActionResult<ClinicResponseDto>> GetById(Guid id)
         {
             // ClinicAdmin يرى عيادته فقط
@@ -79,9 +80,9 @@ namespace ClinicSaaS.API.Controllers
                 isAdmin = false,
             });
         }
-        //post: api/clinics
-        // SuperAdmin فقط — إنشاء عيادة جديدة
 
+        // POST: api/clinics
+        // SuperAdmin فقط — إنشاء عيادة جديدة
         [HttpPost]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult<ClinicResponseDto>> Create([FromBody] CreateClinicDto dto)
@@ -113,48 +114,68 @@ namespace ClinicSaaS.API.Controllers
                 SourceNumber = dto.CommercialRegister,
                 InvoiceId = dto.InvoiceId,
                 InvoiceKey = dto.InvoiceKey,
-                Description = dto.Description
+                Description = dto.Description,
+                // ✅ يحدد توقيت العيادة الفعلي بدل الافتراضي الثابت دائماً
+                TimeZone = string.IsNullOrWhiteSpace(dto.TimeZone) ? "Asia/Amman" : dto.TimeZone,
             };
+
             _db.Clinics.Add(clinic);
-            await _db.SaveChangesAsync();
+
+            // ✅ يمسك تعارض الـ Subdomain على مستوى قاعدة البيانات (حماية من التصادم اللحظي)
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                return BadRequest("Subdomain already exists.");
+            }
 
             // ✅ إنشاء الأقسام الافتراضية تلقائياً
             var defaultDepartments = new[]
-  {
-    new { Name = "الاستقبال", NameEn = "Reception"      },
-    new { Name = "الأسنان",   NameEn = "Dentistry"      },
-    new { Name = "الأطفال",   NameEn = "Pediatrics"     },
-    new { Name = "العيون",    NameEn = "Ophthalmology"  },
-    new { Name = "المحاسبة",  NameEn = "Accounting"     },
-    new { Name = "الإدارة",   NameEn = "Administration" },
-    new { Name = "المختبر",   NameEn = "Laboratory"     },
-    new { Name = "الأشعة",    NameEn = "Radiology"      },
-    new { Name = "تمريض",     NameEn = "Nursing"        },
-    new { Name = "صيدله",     NameEn = "Pharmacy"       },
-};
-
-            foreach (var dept in defaultDepartments)
             {
-                _db.Departments.Add(new Department
-                {
-                    Id = Guid.NewGuid(),
-                    Name = dept.Name,
-                    NameEn = dept.NameEn,  // ✅
-                    ClinicId = clinic.Id,
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow,
-                });
-            }
+                new { Name = "الاستقبال", NameEn = "Reception"      },
+                new { Name = "الأسنان",   NameEn = "Dentistry"      },
+                new { Name = "الأطفال",   NameEn = "Pediatrics"     },
+                new { Name = "العيون",    NameEn = "Ophthalmology"  },
+                new { Name = "المحاسبة",  NameEn = "Accounting"     },
+                new { Name = "الإدارة",   NameEn = "Administration" },
+                new { Name = "المختبر",   NameEn = "Laboratory"     },
+                new { Name = "الأشعة",    NameEn = "Radiology"      },
+                new { Name = "تمريض",     NameEn = "Nursing"        },
+                new { Name = "صيدله",     NameEn = "Pharmacy"       },
+            };
 
-            
-            await _db.SaveChangesAsync();
+            // ✅ نلف إنشاء الأقسام بمعاملة — لو فشل جزء منها، نتراجع بالكامل
+            using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                foreach (var dept in defaultDepartments)
+                {
+                    _db.Departments.Add(new Department
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = dept.Name,
+                        NameEn = dept.NameEn,
+                        ClinicId = clinic.Id,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                }
+
+                await _db.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
 
             return CreatedAtAction(nameof(GetById), new { id = clinic.Id }, ToResponse(clinic));
         }
 
-
         // PUT: api/clinics/{id}
-
         [HttpPut("{id}")]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
         public async Task<ActionResult<ClinicResponseDto>> Update(Guid id, [FromBody] UpdateClinicDto dto)
@@ -168,7 +189,6 @@ namespace ClinicSaaS.API.Controllers
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return BadRequest("Clinic name is required.");
-
             clinic.Name = dto.Name;
             clinic.Phone = dto.Phone;
             clinic.Address = dto.Address;
@@ -180,8 +200,14 @@ namespace ClinicSaaS.API.Controllers
             clinic.OwnerEmail = dto.OwnerEmail;
             clinic.TaxNumber = dto.TaxNumber;
 
+            // ✅ يحدّث التوقيت فقط لو المستخدم أرسل قيمة فعلية (ما نمسحه لو الحقل فاضي)
+            if (!string.IsNullOrWhiteSpace(dto.TimeZone))
+                clinic.TimeZone = dto.TimeZone;
+
             await _db.SaveChangesAsync();
             return Ok(ToResponse(clinic));
+
+ 
         }
 
         // PATCH: api/clinics/{id}/toggle
@@ -196,28 +222,29 @@ namespace ClinicSaaS.API.Controllers
             await _db.SaveChangesAsync();
             return Ok(new { clinic.IsActive });
         }
+
         // دالة مساعدة
         private static ClinicResponseDto ToResponse(Clinic c) => new ClinicResponseDto
-            {
-                Id = c.Id,
-                Name = c.Name,
-                Subdomain = c.Subdomain,
-                Logo = c.Logo,
-                Address = c.Address,
-                Phone = c.Phone,
-                Website = c.Website,
-                Email = c.Email,
-                OwnerName = c.OwnerName,
-                OwnerEmail = c.OwnerEmail,
-                OwnerPhone = c.OwnerPhone,
-                TaxNumber = c.TaxNumber,
-                CommercialRegister = c.SourceNumber,
-                InvoiceId = c.InvoiceId,
-                InvoiceKey = c.InvoiceKey,
-                Description = c.Description,
-                IsActive = c.IsActive,
-                CreatedAt = c.CreatedAt
-            };
-        }
-     
+        {
+            Id = c.Id,
+            Name = c.Name,
+            Subdomain = c.Subdomain,
+            Logo = c.Logo,
+            Address = c.Address,
+            Phone = c.Phone,
+            Website = c.Website,
+            Email = c.Email,
+            OwnerName = c.OwnerName,
+            OwnerEmail = c.OwnerEmail,
+            OwnerPhone = c.OwnerPhone,
+            TaxNumber = c.TaxNumber,
+            CommercialRegister = c.SourceNumber,
+            InvoiceId = c.InvoiceId,
+            InvoiceKey = c.InvoiceKey,
+            Description = c.Description,
+            IsActive = c.IsActive,
+            CreatedAt = c.CreatedAt,
+            TimeZone = c.TimeZone,   // ✅ جديد
+        };
+    }
 }

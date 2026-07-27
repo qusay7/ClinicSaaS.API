@@ -16,12 +16,27 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly IDepartmentSeedingService _departmentSeedingService;
 
-        public DepartmentsController(ApplicationDbContext db, IClinicContext clinicContext)
+        public DepartmentsController(ApplicationDbContext db, IClinicContext clinicContext, IDepartmentSeedingService departmentSeedingService)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _departmentSeedingService = departmentSeedingService;
         }
+
+        [HttpPost("seed-defaults/{clinicId}")]
+        [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
+        public async Task<ActionResult> SeedDefaultDepartments(Guid clinicId)
+        {
+            var clinic = await _db.Clinics.FindAsync(clinicId);
+            if (clinic == null) return NotFound("العيادة غير موجودة");
+
+            var added = await _departmentSeedingService.SeedDefaultDepartments(clinicId);
+
+            return Ok(new { message = $"تم إنشاء {added} قسم" });
+        }
+
 
         [HttpGet]
         public async Task<ActionResult> GetAll()
@@ -43,7 +58,7 @@ namespace ClinicSaaS.API.Controllers
                 d.IsActive,
                 d.CreatedAt,
                 DoctorsCount = _db.Doctors.Count(doc =>
-                    doc.DepartmentId == d.Id && !doc.isdeleted)
+                    doc.DepartmentId == d.Id && !doc.IsDeleted)
             });
 
             return Ok(result);
@@ -117,7 +132,7 @@ namespace ClinicSaaS.API.Controllers
             if (dept.ClinicId != _clinicContext.ClinicId) return Forbid();
 
             var hasDoctors = await _db.Doctors
-                .AnyAsync(d => d.DepartmentId == id && !d.isdeleted);
+                .AnyAsync(d => d.DepartmentId == id && !d.IsDeleted);
             if (hasDoctors)
                 return BadRequest("لا يمكن حذف قسم يحتوي على أطباء");
 
@@ -126,50 +141,6 @@ namespace ClinicSaaS.API.Controllers
             return NoContent();
         }
 
-        // POST: api/departments/seed-defaults/{clinicId}
-        [HttpPost("seed-defaults/{clinicId}")]
-        [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
-        public async Task<ActionResult> SeedDefaultDepartments(Guid clinicId)
-        {
-            var clinic = await _db.Clinics.FindAsync(clinicId);
-            if (clinic == null) return NotFound("العيادة غير موجودة");
 
-            var defaultDepartments = new[]
-{
-    new { Name = "الاستقبال", NameEn = "Reception" },
-    new { Name = "الأسنان",   NameEn = "Dentistry" },
-    new { Name = "الأطفال",   NameEn = "Pediatrics" },
-    new { Name = "العيون",    NameEn = "Ophthalmology" },
-    new { Name = "المحاسبة",  NameEn = "Accounting" },
-    new { Name = "الإدارة",   NameEn = "Administration" },
-    new { Name = "المختبر",   NameEn = "Laboratory" },
-    new { Name = "الأشعة",    NameEn = "Radiology" },
-    new { Name = "تمريض",     NameEn = "Nursing" },
-    new { Name = "صيدله",     NameEn = "Pharmacy" },
-};
-
-            int added = 0;
-
-            foreach (var dept in defaultDepartments)
-            {
-                var exists = await _db.Departments
-                    .AnyAsync(d => d.Name == dept.Name && d.ClinicId == clinicId);
-                if (exists) continue;
-
-                _db.Departments.Add(new Department
-                {
-                    Id = Guid.NewGuid(),
-                    Name = dept.Name,
-                    NameEn = dept.NameEn, // ✅
-                    ClinicId = clinicId,
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow,
-                });
-                added++;
-            }
-
-            await _db.SaveChangesAsync();
-            return Ok(new { message = $"تم إنشاء {added} قسم" });
-        }
     }
 }

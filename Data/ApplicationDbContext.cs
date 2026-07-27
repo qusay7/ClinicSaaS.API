@@ -1,12 +1,41 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 
 namespace ClinicSaaS.API.Data
 {
     public class ApplicationDbContext : DbContext
     {
-        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
+        private readonly IHttpContextAccessor? _httpContextAccessor;
+        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IHttpContextAccessor? httpContextAccessor = null)
+       : base(options)
         {
+            _httpContextAccessor = httpContextAccessor;
         }
+
+        // ✅ الدالة السحرية — تشتغل تلقائياً قبل كل حفظ
+        public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            var userIdClaim = _httpContextAccessor?.HttpContext?.User?
+                .FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            Guid? currentUserId = Guid.TryParse(userIdClaim, out var uid) ? uid : null;
+
+            foreach (var entry in ChangeTracker.Entries<IAuditable>())
+            {
+                if (entry.State == EntityState.Added)
+                {
+                    entry.Entity.CreatedBy = currentUserId;
+                }
+                else if (entry.State == EntityState.Modified)
+                {
+                    entry.Entity.UpdatedBy = currentUserId;
+                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
         //DbSet هو ببساطة "بوابة" بين الكود وجدول قاعدة البيانات.
         // Define DbSets for your entities here
         // أول جدول تجريبي: المرضى
@@ -30,11 +59,21 @@ namespace ClinicSaaS.API.Data
         public DbSet<VisitNote> VisitNotes { get; set; }
         public DbSet<Absence> Absences { get; set; }
         public DbSet<NotificationLog> NotificationLogs { get; set; }
+
         // ══ Insurance ══
         public DbSet<InsuranceCompany> InsuranceCompanies { get; set; }
         public DbSet<PatientInsurance> PatientInsurances { get; set; }
         public DbSet<InsuranceClaim> InsuranceClaims { get; set; }
         public DbSet<PaymentDetail> PaymentDetails { get; set; }
+
+        public DbSet<Staff> Staff { get; set; }
+        // ══ خطط العلاج ══
+        public DbSet<TreatmentPlanTemplate> TreatmentPlanTemplates { get; set; }
+        public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
+        public DbSet<TreatmentSession> TreatmentSessions { get; set; }
+        public DbSet<DoctorTemplateSetting> DoctorTemplateSettings { get; set; }   // ✅ جديد
+
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -58,7 +97,12 @@ namespace ClinicSaaS.API.Data
                 .HasForeignKey(a => a.ClinicId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-          
+            // ✅ قالب الزيارة المرتبط بالموعد (اختياري)
+            modelBuilder.Entity<Appointment>()
+                .HasOne(a => a.Template)
+                .WithMany()
+                .HasForeignKey(a => a.TemplateId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<Doctor>()
                 .HasOne(d => d.Clinic)
@@ -69,7 +113,7 @@ namespace ClinicSaaS.API.Data
             // ✅ Doctors - Department (صريح ومحدد)
             modelBuilder.Entity<Doctor>()
                 .HasOne(d => d.Department)
-                .WithMany(dep => dep.Doctors)  // ✅ حدد الـ collection بشكل صريح
+                .WithMany(dep => dep.Doctors)
                 .HasForeignKey(d => d.DepartmentId)
                 .OnDelete(DeleteBehavior.NoAction);
 
@@ -86,11 +130,18 @@ namespace ClinicSaaS.API.Data
                 .HasForeignKey(q => q.PatientId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+
             modelBuilder.Entity<QueueEntry>()
                 .HasOne(q => q.Doctor)
                 .WithMany()
                 .HasForeignKey(q => q.DoctorId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            // ✅ يمنع تكرار رقم الدور بنفس اليوم ونفس العيادة
+            modelBuilder.Entity<QueueEntry>()
+                .HasIndex(q => new { q.ClinicId, q.Date, q.QueueNumber })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
 
             modelBuilder.Entity<VisitNote>()
                 .HasOne(v => v.Clinic)
@@ -121,6 +172,8 @@ namespace ClinicSaaS.API.Data
                 .WithMany()
                 .HasForeignKey(v => v.QueueEntryId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+
 
             modelBuilder.Entity<Absence>()
                 .HasOne(a => a.Clinic)
@@ -169,14 +222,157 @@ namespace ClinicSaaS.API.Data
                 e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.InsuranceClaim).WithMany().HasForeignKey(x => x.InsuranceClaimId).OnDelete(DeleteBehavior.Restrict);
+                // ✅ يمنع وجود أكثر من دفعة لنفس الموعد (يحل مشكلة الدفعة المزدوجة)
+                e.HasIndex(x => x.AppointmentId).IsUnique();
             });
+
+            modelBuilder.Entity<Staff>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Salary).HasPrecision(10, 3);
+                e.HasOne(x => x.Clinic)
+                    .WithMany()
+                    .HasForeignKey(x => x.ClinicId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Department)
+                    .WithMany()
+                    .HasForeignKey(x => x.DepartmentId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Role)
+                    .WithMany()
+                    .HasForeignKey(x => x.RoleId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Doctor)
+                    .WithMany()
+                    .HasForeignKey(x => x.DoctorId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+            // ══ خطط العلاج ══
+            modelBuilder.Entity<TreatmentPlanTemplate>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.DefaultPricePerSession).HasPrecision(10, 3);
+                e.Property(x => x.DefaultTotalPrice).HasPrecision(10, 3);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<TreatmentPlan>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.PricePerSession).HasPrecision(10, 3);
+                e.Property(x => x.TotalPrice).HasPrecision(10, 3);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Doctor).WithMany().HasForeignKey(x => x.DoctorId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<TreatmentSession>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Cost).HasPrecision(10, 3);
+                e.HasOne(x => x.TreatmentPlan).WithMany(p => p.Sessions).HasForeignKey(x => x.TreatmentPlanId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ✅ إعدادات الطبيب المالية (سعر خاص + حصة) لكل قالب
+            modelBuilder.Entity<DoctorTemplateSetting>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.FirstVisitPrice).HasPrecision(10, 3);
+                e.Property(x => x.FollowUpPrice).HasPrecision(10, 3);
+                e.Property(x => x.FirstVisitCommissionRate).HasPrecision(10, 3);
+                e.Property(x => x.FollowUpCommissionRate).HasPrecision(10, 3);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Doctor).WithMany().HasForeignKey(x => x.DoctorId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
+
+                // ✅ طبيب معيّن ممكن يكون له سطر واحد بس لكل قالب محدد
+                e.HasIndex(x => new { x.DoctorId, x.TemplateId })
+                    .IsUnique()
+                    .HasFilter("[TemplateId] IS NOT NULL AND [IsDeleted] = 0")
+                    .HasDatabaseName("IX_DoctorTemplateSettings_Doctor_Template");
+
+                // ✅ وطبيب معيّن ممكن يكون له "إعداد عام" واحد بس (TemplateId = NULL)
+                e.HasIndex(x => x.DoctorId)
+                    .IsUnique()
+                    .HasFilter("[TemplateId] IS NULL AND [IsDeleted] = 0")
+                    .HasDatabaseName("IX_DoctorTemplateSettings_Doctor_GeneralOnly");
+            });
+            modelBuilder.Entity<DoctorTemplateSetting>().HasQueryFilter(x => !x.IsDeleted);
+
+            // Soft Delete
+            modelBuilder.Entity<TreatmentPlanTemplate>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<TreatmentSession>().HasQueryFilter(x => !x.IsDeleted);
+
+            // ══ Global Query Filters (Soft Delete) ══
+            modelBuilder.Entity<Patient>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<Appointment>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<QueueEntry>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<VisitNote>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<Doctor>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<User>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<Absence>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<InsuranceCompany>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<PatientInsurance>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<InsuranceClaim>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<PaymentDetail>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<Staff>().HasQueryFilter(x => !x.IsDeleted);
+
+            // ══ Unique Indexes ══
+
+            // كل عيادة لها Subdomain فريد (يستخدم بالـ URL: clinicA.yoursite.com)
+            modelBuilder.Entity<Clinic>()
+                .HasIndex(c => c.Subdomain)
+                .IsUnique();
+
+            // الإيميل يجب أن يكون فريد بين المستخدمين النشطين فقط
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Email)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            // اسم المستخدم فريد بين النشطين فقط
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Username)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0 AND [Username] IS NOT NULL");
+
+            // رقم المريض فريد ضمن نفس العيادة، بين المرضى النشطين فقط
+            modelBuilder.Entity<Patient>()
+                .HasIndex(p => new { p.ClinicId, p.PatientNumber })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            // الرقم الوطني فريد ضمن نفس العيادة، بين النشطين فقط
+            modelBuilder.Entity<Patient>()
+                .HasIndex(p => new { p.ClinicId, p.NationalId })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0 AND [NationalId] IS NOT NULL");
+
+            // ══ تصحيح دقة الحقول المالية (decimal precision) ══
+            modelBuilder.Entity<Appointment>().Property(x => x.Price).HasPrecision(10, 3);
+            modelBuilder.Entity<Appointment>().Property(x => x.DoctorCommissionAmount).HasPrecision(10, 3);
+            modelBuilder.Entity<DoctorSchedule>().Property(x => x.FirstVisitPrice).HasPrecision(10, 3);
+            modelBuilder.Entity<DoctorSchedule>().Property(x => x.FollowUpPrice).HasPrecision(10, 3);
+            modelBuilder.Entity<Plan>().Property(x => x.MonthlyPrice).HasPrecision(10, 3);
+            modelBuilder.Entity<Plan>().Property(x => x.YearlyPrice).HasPrecision(10, 3);
+            modelBuilder.Entity<Subscription>().Property(x => x.PricePaid).HasPrecision(10, 3);
+            modelBuilder.Entity<VisitNote>().Property(x => x.Cost).HasPrecision(10, 3);
+            modelBuilder.Entity<TreatmentPlanTemplate>().Property(x => x.FirstVisitPrice).HasPrecision(10, 3);
+            modelBuilder.Entity<TreatmentPlanTemplate>().Property(x => x.FollowUpPrice).HasPrecision(10, 3);
+            // بـ OnModelCreating
+            modelBuilder.Entity<Subscription>()
+                .HasIndex(s => s.ClinicId)
+                .IsUnique()
+                .HasFilter("[IsActive] = 1")
+                .HasDatabaseName("IX_Subscriptions_ClinicId_ActiveOnly");   // ✅ اسم مختلف صراحة
+
+
         }
 
 
     }
 
     //جدول البيانات (Entities) تمثل الجداول في قاعدة البيانات. هذا الكلاس يمثل جدول المرضى.
-    public class Patient
+    public class Patient : IAuditable
     {
         public Guid Id { get; set; }
         public int PatientNumber { get; set; }
@@ -188,127 +384,136 @@ namespace ClinicSaaS.API.Data
         public string? Gender { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // قيم افتراضية false = 0 في قاعدة البيانات
         public bool stopped { get; set; } = false;
-        public bool isdeleted { get; set; } = false;
+        public bool IsDeleted { get; set; } = false;
 
         public string? Notes { get; set; }
         public string? Notes2 { get; set; }
         public string? Notes3 { get; set; }
 
-        public string? BloodType { get; set; }     // فصيلة الدم (A+, B-, ...)
-        public string? Address { get; set; }        // العنوان
-        public string? Email { get; set; }          // البريد الإلكتروني
-        public string? EmergencyContact { get; set; } // اسم شخص للطوارئ
-        public string? EmergencyPhone { get; set; }   // هاتف شخص الطوارئ
-        public string? Allergies { get; set; }      // الحساسية (بنسلين, ...)
-        public string? ChronicDiseases { get; set; } // أمراض مزمنة (سكري, ضغط, ...)
-        public string? Occupation { get; set; }     // المهنة
-        public string? MaritalStatus { get; set; }  // الحالة الاجتماعية
+        public string? BloodType { get; set; }
+        public string? Address { get; set; }
+        public string? Email { get; set; }
+        public string? EmergencyContact { get; set; }
+        public string? EmergencyPhone { get; set; }
+        public string? Allergies { get; set; }
+        public string? ChronicDiseases { get; set; }
+        public string? Occupation { get; set; }
+        public string? MaritalStatus { get; set; }
 
-        // في كلاس Patient أضف هذا السطر
-        // هذا يعني أن كل مريض يمكن أن يكون لديه عدة مواعيد (علاقة واحد-لعديد)
         public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();
-        public Guid ClinicId { get; set; } // ربط المريض بالعيادة
-        public Clinic Clinic { get; set; } = default!; // خاصية Navigation لربط المريض بالعيادة
+        public Guid ClinicId { get; set; }
+        public Clinic Clinic { get; set; } = default!;
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
-    public class Appointment
-    {       
-        public Guid Id { get; set; }// Unique identifier for the appointment
-        // Foreign key to link to the patient
-        // ربط الموعد بالمريض — Foreign Key
+    // جدول المواعيد
+    public class Appointment : IAuditable
+    {
+        public Guid Id { get; set; }
         public Guid PatientId { get; set; }
-         // Navigation property to link to the patient
-        // خاصية Navigation — تسمح لنا بالوصول لبيانات المريض من الموعد
-        public Patient Patient { get; set; } = default!;// هذا يعني أن كل موعد مرتبط بمريض واحد (علاقة واحد-لواحد)
-        public DateTime AppointmentDate { get; set; }// تاريخ ووقت الموعد
-                                                     // ✅ أضف هذا
-        public Guid? DoctorId { get; set; }// ربط الموعد بالطبيب (اختياري)
-        public Doctor? Doctor { get; set; }// خاصية Navigation لربط الموعد بالطبيب
+        public Patient Patient { get; set; } = default!;
+        public DateTime AppointmentDate { get; set; }
+        public Guid? DoctorId { get; set; }
+        public Doctor? Doctor { get; set; }
 
-        public string? Type { get; set; }// نوع الموعد (استشارة, متابعة, ...)
-        public decimal? Price { get; set; }// سعر الموعد
+        public string? Type { get; set; }
+        public decimal? Price { get; set; }
 
-        // الحالة: pending / confirmed / cancelled
         public string Status { get; set; } = "scheduled";
 
-        public string? Notes { get; set; }// ملاحظات إضافية عن الموعد
+        public string? Notes { get; set; }
         public string? Notes2 { get; set; }
         public string? Notes3 { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;// تاريخ إنشاء الموعد
-        public bool isdeleted { get; set; } = false;// هذا الحقل يستخدم للحذف المنطقي (soft delete) — يعني أن الموعد لا يتم حذفه فعلياً من قاعدة البيانات، بل يتم تمييزه كـ "محذوف" بحيث لا يظهر في الاستعلامات العادية
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
 
-        public Guid ClinicId { get; set; }          // ربط الموعد بالعيادة
-        public Clinic Clinic { get; set; } = default!;// خاصية Navigation لربط الموعد بالعيادة
+        public Guid ClinicId { get; set; }
+        public Clinic Clinic { get; set; } = default!;
 
-        // أضف في Appointment class
-        public DateTime? CheckInTime { get; set; }   // وقت دخول المريض
-        public DateTime? CheckOutTime { get; set; }  // وقت خروج المريض
+        public DateTime? CheckInTime { get; set; }
+        public DateTime? CheckOutTime { get; set; }
 
+        // ✅ جديد — أي قالب زيارة ينطبق على هذا الموعد (كشف/مراجعة/استشارة/متابعة أو أي قالب مخصص)
+        // يُستخدم لتحديد السعر وحصة الطبيب تلقائياً وقت الحجز والـ Checkout
+        public Guid? TemplateId { get; set; }
+        public TreatmentPlanTemplate? Template { get; set; }
+
+        // ✅ مبلغ حصة الطبيب الفعلي، يُحسب ويُخزّن مرة واحدة وقت الـ Checkout
+        // (Snapshot ثابت — ما يتأثر لو تغيّرت نسبة الطبيب مستقبلاً)
+        public decimal? DoctorCommissionAmount { get; set; }
+
+        [Timestamp]
+        public byte[] RowVersion { get; set; } = default!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // جدول العيادات
-    public class Clinic
+    public class Clinic : IAuditable
     {
         public Guid Id { get; set; }
-        public string Name { get; set; } = default!;        // اسم العيادة
-        public string Subdomain { get; set; } = default!;   // clinicA
-        public string? Logo { get; set; }    // Logo 
-        public string? Address { get; set; }   // العنوان
-        public string? Phone { get; set; }     // رقم الهاتف
-        public string? Website { get; set; }  // الموقع الإلكتروني
-        public string? Email { get; set; }     // قيم افتراضية true = 1 في قاعدة البيانات
-        public string? OwnerName { get; set; }  // اسم صاحب العيادة
-        public string? OwnerEmail { get; set; }   // بريد صاحب العيادة
-        public string? OwnerPhone { get; set; }   // هاتف صاحب العيادة
-        public string? TaxNumber { get; set; } //S (الرقم الضريبي)
-        public string? SourceNumber { get; set; } //   (الرقم المصدر للفوترة)
-        public string? InvoiceId { get; set; }    // رمز الفاتورة الإلكترونية
-        public string? InvoiceKey { get; set; }   // مفتاح الفاتورة الإلكترونية
-        public string? Description { get; set; }     // وصف العيادة
+        public string Name { get; set; } = default!;
+        public string Subdomain { get; set; } = default!;
+        public string? Logo { get; set; }
+        public string? Address { get; set; }
+        public string? Phone { get; set; }
+        public string? Website { get; set; }
+        public string? Email { get; set; }
+        public string? OwnerName { get; set; }
+        public string? OwnerEmail { get; set; }
+        public string? OwnerPhone { get; set; }
+        public string? TaxNumber { get; set; }
+        public string? SourceNumber { get; set; }
+        public string? InvoiceId { get; set; }
+        public string? InvoiceKey { get; set; }
+        public string? Description { get; set; }
 
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public string TimeZone { get; set; } = "Jordan Standard Time";
-        // علاقة — كل عيادة لها مستخدمون
+        public string TimeZone { get; set; } = "Asia/Amman";
         public ICollection<User> Users { get; set; } = new List<User>();
-        // علاقة — كل عيادة لها مرضى
         public ICollection<Patient> Patients { get; set; } = new List<Patient>();
-        // علاقة — كل عيادة لها مواعيد (عبر المرضى)
         public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();
-
-        public ICollection<Doctor> Doctors { get; set; } = new List<Doctor>();// علاقة — كل عيادة لها أطباء
-                                                                             
-        public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>(); // علاقة — كل عيادة لها اشتراكات
-        public ICollection<ClinicSchedule> Schedules { get; set; } = new List<ClinicSchedule>();// علاقة — كل عيادة لها جداول دوام
-            public ICollection<Department> Departments { get; set; } = new List<Department>();// علاقة — كل عيادة لها أقسام
-
+        public ICollection<Doctor> Doctors { get; set; } = new List<Doctor>();
+        public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
+        public ICollection<ClinicSchedule> Schedules { get; set; } = new List<ClinicSchedule>();
+        public ICollection<Department> Departments { get; set; } = new List<Department>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // جدول المستخدمين
-   public class User
-        {
-            public Guid Id { get; set; }
-            public string FullName { get; set; } = default!;   // الاسم الكامل للعرض
-            public string? Username { get; set; }               // ✅ اسم المستخدم للدخول
-            public string Email { get; set; } = default!;
-            public string PasswordHash { get; set; } = default!;
-            public bool IsActive { get; set; } = true;
-            public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-            public string Role { get; set; } = default!;
-            public Guid? ClinicId { get; set; }
-            public Clinic? Clinic { get; set; }
-            public Guid? RoleId { get; set; }
-            public Role? UserRole { get; set; }
-            public Guid? DepartmentId { get; set; }
-            public Department? Department { get; set; }
+    public class User : IAuditable
+    {
+        public Guid Id { get; set; }
+        public string FullName { get; set; } = default!;
+        public string? Username { get; set; }
+        public string Email { get; set; } = default!;
+        public string PasswordHash { get; set; } = default!;
+        public bool IsActive { get; set; } = true;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public string Role { get; set; } = default!;
+        public Guid? ClinicId { get; set; }
+        public Clinic? Clinic { get; set; }
+        public Guid? RoleId { get; set; }
+        public Role? UserRole { get; set; }
+        public Guid? DepartmentId { get; set; }
+        public Department? Department { get; set; }
+        public bool IsDeleted { get; set; } = false;
         public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
 
-        }
-    
     //الطبيب
-    public class Doctor
+    public class Doctor : IAuditable
     {
         public Guid Id { get; set; }
         public string FullName { get; set; } = default!;
@@ -318,122 +523,138 @@ namespace ClinicSaaS.API.Data
         public string? Notes { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public bool isdeleted { get; set; } = false;
+        public bool IsDeleted { get; set; } = false;
 
-        // ربط بالعيادة
         public Guid ClinicId { get; set; }
         public Clinic Clinic { get; set; } = default!;
 
-        // علاقة — كل طبيب له مواعيد
-        public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();// علاقة — كل طبيب له جداول دوام
-        public ICollection<DoctorSchedule> Schedules { get; set; } = new List<DoctorSchedule>();// علاقة — كل طبيب له جداول دوام
+        public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();
+        public ICollection<DoctorSchedule> Schedules { get; set; } = new List<DoctorSchedule>();
 
-        public Guid? UserId { get; set; }  // ✅ ربط مباشر
-        public User? User { get; set; } // خاصية Navigation لربط الطبيب بحسابه في جدول المستخدمين
+        public Guid? UserId { get; set; }
+        public User? User { get; set; }
 
-        public Guid? DepartmentId { get; set; }  // ✅ أضف
+        public Guid? DepartmentId { get; set; }
         public Department? Department { get; set; }
 
-        // ✅ appointments / queue / both
         public string WorkType { get; set; } = "appointments";
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // جدول الخطط (Subscription Plans)
-    public class Plan
+    public class Plan : IAuditable
     {
         public Guid Id { get; set; }
-        public string Name { get; set; } = default!;        // Basic / Standard / Premium
-        public string? Description { get; set; }            // وصف الخطة
-        public decimal MonthlyPrice { get; set; }           // السعر الشهري
-        public decimal YearlyPrice { get; set; }            // السعر السنوي
-        public int MaxUsers { get; set; }                   // -1 = غير محدود
-        public int MaxDoctors { get; set; }                 // -1 = غير محدود
-        public int MaxPatients { get; set; }                // -1 = غير محدود
+        public string Name { get; set; } = default!;
+        public string? Description { get; set; }
+        public decimal MonthlyPrice { get; set; }
+        public decimal YearlyPrice { get; set; }
+        public int MaxUsers { get; set; }
+        public int MaxDoctors { get; set; }
+        public int MaxPatients { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // علاقة — خطة واحدة لها اشتراكات كثيرة
+        public string? FeaturesText { get; set; }   // ✅ جديد — كل ميزة بسطر منفصل
+        public bool IsFeatured { get; set; } = false;  // ✅ جديد — تعليم "الأكثر اختيارًا"
+
         public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // جدول الاشتراكات (Subscriptions)
-    public class Subscription
+    public class Subscription : IAuditable
     {
         public Guid Id { get; set; }
-        public DateTime StartDate { get; set; }             // تاريخ بداية الاشتراك
-        public DateTime EndDate { get; set; }               // تاريخ انتهاء الاشتراك
-        public string BillingCycle { get; set; } = "monthly"; // monthly / yearly
-        public decimal PricePaid { get; set; }              // المبلغ المدفوع فعلياً
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string BillingCycle { get; set; } = "monthly";
+        public decimal PricePaid { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // ربط بالعيادة
         public Guid ClinicId { get; set; }
         public Clinic Clinic { get; set; } = default!;
 
-        // ربط بالخطة
         public Guid PlanId { get; set; }
         public Plan Plan { get; set; } = default!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
-    // جدول Refresh Tokens لتخزين التوكنات المستخدمة لتجديد صلاحية الدخول (Refresh Tokens)
-    public class RefreshToken
+    // جدول Refresh Tokens
+    public class RefreshToken : IAuditable
     {
-        public Guid Id { get; set; }// معرف فريد للتوكن
-        public string Token { get; set; } = default!;     // التوكن المشفّر
-        public DateTime ExpiresAt { get; set; }           // تاريخ الانتهاء
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;// تاريخ الإنشاء
-        public bool IsRevoked { get; set; } = false;      // هل تم إلغاؤه؟
+        public Guid Id { get; set; }
+        public string Token { get; set; } = default!;
+        public DateTime ExpiresAt { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsRevoked { get; set; } = false;
 
-        // ربط بالمستخدم
-        public Guid UserId { get; set; }// معرف المستخدم الذي يملك هذا التوكن
-        public User User { get; set; } = default!; // خاصية Navigation لربط التوكن بالمستخدم
+        public Guid UserId { get; set; }
+        public User User { get; set; } = default!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // جدول دوام العيادة
-    public class ClinicSchedule
+    public class ClinicSchedule : IAuditable
     {
         public Guid Id { get; set; }
         public Guid ClinicId { get; set; }
         public Clinic Clinic { get; set; } = default!;
 
-        public DayOfWeek DayOfWeek { get; set; } // 0=أحد ... 6=سبت
-        public TimeOnly OpenTime { get; set; }   // 08:00
-        public TimeOnly CloseTime { get; set; }  // 20:00
+        public DayOfWeek DayOfWeek { get; set; }
+        public TimeOnly OpenTime { get; set; }
+        public TimeOnly CloseTime { get; set; }
         public bool IsActive { get; set; } = true;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // جدول دوام الطبيب
-    public class DoctorSchedule
+    public class DoctorSchedule : IAuditable
     {
         public Guid Id { get; set; }
         public Guid DoctorId { get; set; }
         public Doctor Doctor { get; set; } = default!;
 
         public DayOfWeek DayOfWeek { get; set; }
-        public TimeOnly StartTime { get; set; }   // 08:00
-        public TimeOnly EndTime { get; set; }     // 14:00
-        public int SlotDuration { get; set; } = 10; // مدة كل موعد بالدقائق
+        public TimeOnly StartTime { get; set; }
+        public TimeOnly EndTime { get; set; }
+        public int SlotDuration { get; set; } = 10;
         public bool IsActive { get; set; } = true;
-        public decimal? FirstVisitPrice { get; set; }  // سعر أول زيارة
-        public decimal? FollowUpPrice { get; set; }    // سعر المتابعة
+        public decimal? FirstVisitPrice { get; set; }
+        public decimal? FollowUpPrice { get; set; }
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // Department
-    public class Department
+    public class Department : IAuditable
     {
         public Guid Id { get; set; }
         public Guid ClinicId { get; set; }
         public string Name { get; set; } = "";
         public DepartmentType Type { get; set; }
-        public string? SettingsJson { get; set; }  // JSON مرن
+        public string? SettingsJson { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; }
         public string? NameEn { get; set; }
-        // Navigation
         public Clinic Clinic { get; set; } = null!;
         public ICollection<Doctor> Doctors { get; set; } = new List<Doctor>();
         public ICollection<DepartmentRole> DepartmentRoles { get; set; } = new List<DepartmentRole>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     public enum DepartmentType
@@ -448,45 +669,53 @@ namespace ClinicSaaS.API.Data
     }
 
     // Role مخصص للعيادة
-    public class Role
+    public class Role : IAuditable
     {
         public Guid Id { get; set; }
         public Guid? ClinicId { get; set; }
         public Guid? DepartmentId { get; set; }
         public string Name { get; set; } = "";
-        public string? Description { get; set; }  // ✅ أضف
-        public bool IsActive { get; set; } = true; // ✅ أضف
+        public string? Description { get; set; }
+        public bool IsActive { get; set; } = true;
         public bool IsSystem { get; set; }
         public string? NameEn { get; set; }
         public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // Permission
-    public class Permission
+    public class Permission : IAuditable
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = "";
         public string Module { get; set; } = "";
-        public string? Group { get; set; }        // ✅ أضف
+        public string? Group { get; set; }
         public string DisplayName { get; set; } = "";
         public bool IsActive { get; set; } = true;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
-    // RolePermission — مرن
-    public class RolePermission
+    // RolePermission
+    public class RolePermission : IAuditable
     {
         public Guid Id { get; set; }
         public Guid RoleId { get; set; }
         public Guid PermissionId { get; set; }
-        public Guid? ClinicId { get; set; }     // null = افتراضي
+        public Guid? ClinicId { get; set; }
 
-        // Navigation
         public Role Role { get; set; } = null!;
         public Permission Permission { get; set; } = null!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
-    // DepartmentRole — أي أدوار موجودة في هذا القسم
-    public class DepartmentRole
+    // DepartmentRole
+    public class DepartmentRole : IAuditable
     {
         public Guid Id { get; set; }
         public Guid DepartmentId { get; set; }
@@ -494,202 +723,410 @@ namespace ClinicSaaS.API.Data
 
         public Department Department { get; set; } = null!;
         public Role Role { get; set; } = null!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
+
     // جدول الانتظار (Queue)
-    public class QueueEntry
-    {
-        public Guid Id { get; set; }// معرف فريد لكل دخول في قائمة الانتظار
-        public Guid ClinicId { get; set; }// ربط دخول قائمة الانتظار بالعيادة
-        public Clinic Clinic { get; set; } = default!;// خاصية Navigation لربط دخول قائمة الانتظار بالعيادة
-
-        public Guid PatientId { get; set; }// ربط دخول قائمة الانتظار بالمريض
-        public Patient Patient { get; set; } = default!;// خاصية Navigation لربط دخول قائمة الانتظار بالمريض
-
-        public Guid? DoctorId { get; set; }// ربط دخول قائمة الانتظار بالطبيب (اختياري)
-        public Doctor? Doctor { get; set; }// خاصية Navigation لربط دخول قائمة الانتظار بالطبيب
-
-        public int QueueNumber { get; set; }      // رقم الدور
-        public DateTime Date { get; set; }         // تاريخ اليوم
-        public string Status { get; set; } = "waiting"; // waiting / called / completed / cancelled
-        public string? Notes { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public bool IsDeleted { get; set; } = false;
-    }
-
-    // جدول ملاحظات الزيارة (Visit Notes)
-    public class VisitNote
-        {
-            public Guid Id { get; set; }
-            public Guid ClinicId { get; set; }
-            public Guid PatientId { get; set; }
-            public Guid? AppointmentId { get; set; }  // موعد
-            public Guid? QueueEntryId { get; set; }   // دور
-            public Guid? DoctorId { get; set; }
-
-            public string? Diagnosis { get; set; }        // التشخيص
-            public string? Prescription { get; set; }     // الأدوية
-            public string? Tests { get; set; }            // الفحوصات
-            public string? Notes { get; set; }            // ملاحظات
-            public DateTime? NextVisitDate { get; set; }  // الزيارة القادمة
-            public decimal? Cost { get; set; }            // التكلفة
-
-            public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-            public bool IsDeleted { get; set; } = false;
-
-            // Navigation
-            public Clinic? Clinic { get; set; }
-            public Patient? Patient { get; set; }
-            public Doctor? Doctor { get; set; }
-            public Appointment? Appointment { get; set; }
-            public QueueEntry? QueueEntry { get; set; }
-        }
-
-    // جدول الغياب (Absences) — إجازات العيادة أو الطبيب
-    public class Absence
+    public class QueueEntry : IAuditable
     {
         public Guid Id { get; set; }
         public Guid ClinicId { get; set; }
-        public Guid? DoctorId { get; set; }   // null = إجازة العيادة كاملة
+        public Clinic Clinic { get; set; } = default!;
+
+        public Guid PatientId { get; set; }
+        public Patient Patient { get; set; } = default!;
+
+        public Guid? DoctorId { get; set; }
+        public Doctor? Doctor { get; set; }
+
+        public int QueueNumber { get; set; }
+        public DateTime Date { get; set; }
+        public string Status { get; set; } = "waiting";
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // جدول ملاحظات الزيارة (Visit Notes)
+    public class VisitNote : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+        public Guid? AppointmentId { get; set; }
+        public Guid? QueueEntryId { get; set; }
+        public Guid? DoctorId { get; set; }
+
+        public string? Diagnosis { get; set; }
+        public string? Prescription { get; set; }
+        public string? Tests { get; set; }
+        public string? Notes { get; set; }
+        public DateTime? NextVisitDate { get; set; }
+        public decimal? Cost { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+
+        public Clinic? Clinic { get; set; }
+        public Patient? Patient { get; set; }
+        public Doctor? Doctor { get; set; }
+        public Appointment? Appointment { get; set; }
+        public QueueEntry? QueueEntry { get; set; }
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // جدول الغياب (Absences)
+    public class Absence : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid? DoctorId { get; set; }
         public DateTime StartDate { get; set; }
         public DateTime EndDate { get; set; }
-        public TimeOnly? StartTime { get; set; }  // null = يوم كامل
+        public TimeOnly? StartTime { get; set; }
         public TimeOnly? EndTime { get; set; }
-        public string Type { get; set; } = "holiday"; // holiday/vacation/meeting/break/other
+        public string Type { get; set; } = "holiday";
         public string? Notes { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation
         public Clinic Clinic { get; set; } = null!;
         public Doctor? Doctor { get; set; }
+
+        public bool IsDeleted { get; set; } = false;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
-    // أضف هذا الـ entity في ApplicationDbContext
-    public class NotificationLog
+    // NotificationLog
+    public class NotificationLog : IAuditable
     {
         public Guid Id { get; set; }
         public Guid AppointmentId { get; set; }
         public Guid ClinicId { get; set; }
         public Guid PatientId { get; set; }
-        public string Type { get; set; } = "";  // confirmation / day_before / hour_before
-        public string Channel { get; set; } = "";  // whatsapp / sms
+        public string Type { get; set; } = "";
+        public string Channel { get; set; } = "";
         public string Phone { get; set; } = "";
         public string Message { get; set; } = "";
         public bool IsSuccess { get; set; }
         public string? ErrorMessage { get; set; }
         public DateTime SentAt { get; set; }
-
         public Appointment? Appointment { get; set; }
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 
+    // ══════════════════════════════════════
+    // شركة التأمين
+    // ══════════════════════════════════════
+    public class InsuranceCompany : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public string Name { get; set; } = "";
+        public string? NameEn { get; set; }
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? ContactName { get; set; }
+        public decimal CoverageRate { get; set; } = 80;
+        public bool IsActive { get; set; } = true;
+        public DateTime CreatedAt { get; set; }
+        public bool IsDeleted { get; set; } = false;
+        public Clinic? Clinic { get; set; }
+        public ICollection<PatientInsurance> PatientInsurances { get; set; } = new List<PatientInsurance>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
 
-          // ══════════════════════════════════════
-        // شركة التأمين
-        // ══════════════════════════════════════
-        public class InsuranceCompany
-        {
-            public Guid Id { get; set; }
-            public Guid ClinicId { get; set; }
-            public string Name { get; set; } = "";       // Mediterranean، AXA، ...
-            public string? NameEn { get; set; }
-            public string? Phone { get; set; }
-            public string? Email { get; set; }
-            public string? ContactName { get; set; }             // اسم المسؤول
-            public decimal CoverageRate { get; set; } = 80;     // نسبة التغطية الافتراضية %
-            public bool IsActive { get; set; } = true;
-            public DateTime CreatedAt { get; set; }
+    // ══════════════════════════════════════
+    // بوليصة تأمين المريض
+    // ══════════════════════════════════════
+    public class PatientInsurance : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid PatientId { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid InsuranceCompanyId { get; set; }
+        public string PolicyNumber { get; set; } = "";
+        public string? MembershipNumber { get; set; }
+        public decimal CoverageRate { get; set; } = 80;
+        public decimal? MaxCoverageAmount { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public bool IsActive { get; set; } = true;
+        public bool IsPrimary { get; set; } = true;
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public bool IsDeleted { get; set; } = false;
+        public Patient? Patient { get; set; }
+        public InsuranceCompany? InsuranceCompany { get; set; }
+        public ICollection<InsuranceClaim> Claims { get; set; } = new List<InsuranceClaim>();
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
 
-            public Clinic? Clinic { get; set; }
-            public ICollection<PatientInsurance> PatientInsurances { get; set; } = new List<PatientInsurance>();
-        }
+    // ══════════════════════════════════════
+    // مطالبة التأمين
+    // ══════════════════════════════════════
+    public class InsuranceClaim : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+        public Guid PatientInsuranceId { get; set; }
+        public Guid? AppointmentId { get; set; }
+        public string ClaimNumber { get; set; } = "";
+        public decimal TotalAmount { get; set; }
+        public decimal CoverageRate { get; set; }
+        public decimal InsuranceAmount { get; set; }
+        public decimal PatientAmount { get; set; }
+        public string Status { get; set; } = "pending";
+        public string? ApprovalNumber { get; set; }
+        public string? RejectionReason { get; set; }
+        public string? Notes { get; set; }
+        public DateTime ServiceDate { get; set; }
+        public DateTime? SubmittedAt { get; set; }
+        public DateTime? ApprovedAt { get; set; }
+        public DateTime? PaidAt { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public bool IsDeleted { get; set; } = false;
+        public Patient? Patient { get; set; }
+        public PatientInsurance? PatientInsurance { get; set; }
+        [Timestamp]
+        public byte[] RowVersion { get; set; } = default!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
 
-        // ══════════════════════════════════════
-        // بوليصة تأمين المريض
-        // ══════════════════════════════════════
-        public class PatientInsurance
-        {
-            public Guid Id { get; set; }
-            public Guid PatientId { get; set; }
-            public Guid ClinicId { get; set; }
-            public Guid InsuranceCompanyId { get; set; }
-            public string PolicyNumber { get; set; } = ""; // رقم البوليصة
-            public string? MembershipNumber { get; set; }       // رقم العضوية
-            public decimal CoverageRate { get; set; } = 80; // نسبة التغطية %
-            public decimal? MaxCoverageAmount { get; set; }      // الحد الأقصى للتغطية السنوية
-            public DateTime StartDate { get; set; }
-            public DateTime EndDate { get; set; }
-            public bool IsActive { get; set; } = true;
-            public bool IsPrimary { get; set; } = true; // البوليصة الرئيسية
-            public string? Notes { get; set; }
-            public DateTime CreatedAt { get; set; }
-
-            public Patient? Patient { get; set; }
-            public InsuranceCompany? InsuranceCompany { get; set; }
-            public ICollection<InsuranceClaim> Claims { get; set; } = new List<InsuranceClaim>();
-        }
-
-        // ══════════════════════════════════════
-        // مطالبة التأمين
-        // ══════════════════════════════════════
-        public class InsuranceClaim
-        {
-            public Guid Id { get; set; }
-            public Guid ClinicId { get; set; }
-            public Guid PatientId { get; set; }
-            public Guid PatientInsuranceId { get; set; }
-            public Guid? AppointmentId { get; set; }
-            public string ClaimNumber { get; set; } = ""; // رقم المطالبة
-            public decimal TotalAmount { get; set; }       // إجمالي سعر الخدمة
-            public decimal CoverageRate { get; set; }       // نسبة التغطية %
-            public decimal InsuranceAmount { get; set; }       // ما تدفعه شركة التأمين
-            public decimal PatientAmount { get; set; }       // ما يدفعه المريض
-            public string Status { get; set; } = "pending"; // pending/submitted/approved/rejected/paid
-            public string? ApprovalNumber { get; set; }       // رقم الموافقة المسبقة
-            public string? RejectionReason { get; set; }       // سبب الرفض
-            public string? Notes { get; set; }
-            public DateTime ServiceDate { get; set; }
-            public DateTime? SubmittedAt { get; set; }
-            public DateTime? ApprovedAt { get; set; }
-            public DateTime? PaidAt { get; set; }
-            public DateTime CreatedAt { get; set; }
-
-            public Patient? Patient { get; set; }
-            public PatientInsurance? PatientInsurance { get; set; }
-        }
-    public class PaymentDetail
+    public class PaymentDetail : IAuditable
     {
         public Guid Id { get; set; }
         public Guid ClinicId { get; set; }
         public Guid AppointmentId { get; set; }
         public Guid PatientId { get; set; }
 
-        // ── الأسعار ──
-        public decimal TotalAmount { get; set; }        // سعر الزيارة الكامل
-        public decimal InsuranceAmount { get; set; }    // حصة التأمين
-        public decimal PatientAmount { get; set; }      // صافي ما يدفعه المريض
+        public decimal TotalAmount { get; set; }
+        public decimal InsuranceAmount { get; set; }
+        public decimal PatientAmount { get; set; }
 
-        // ── الدفع ──
-        public decimal AmountPaid { get; set; }         // المبلغ المدفوع فعلاً
-        public string PaymentMethod { get; set; } = "cash"; // cash/card/insurance
+        public decimal AmountPaid { get; set; }
+        public string PaymentMethod { get; set; } = "cash";
         public DateTime? PaidAt { get; set; }
         public bool IsPaid { get; set; } = false;
 
-        // ── المستحقات ──
-        //양수 = مبلغ مستحق على المريض | سالب = مبلغ مستحق للمريض (رد)
         public decimal PatientBalance => AmountPaid - PatientAmount;
-        //양수 = مبلغ مستحق من التأمين | سالب = تم استلامه
-        public decimal InsuranceBalance { get; set; }   // ما تبقى من التأمين لم يُستلم بعد
+        public decimal InsuranceBalance { get; set; }
 
         public Guid? InsuranceClaimId { get; set; }
         public string? Notes { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation
         public Clinic? Clinic { get; set; }
         public Appointment? Appointment { get; set; }
         public Patient? Patient { get; set; }
         public InsuranceClaim? InsuranceClaim { get; set; }
+        public bool IsDeleted { get; set; } = false;
+        [Timestamp]
+        public byte[] RowVersion { get; set; } = default!;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
+
+    public class Staff : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+
+        public string FullName { get; set; } = "";
+        public string? FullNameEn { get; set; }
+        public string? Gender { get; set; }
+        public DateTime? DateOfBirth { get; set; }
+        public string? NationalId { get; set; }
+        public string? Nationality { get; set; }
+        public string? MaritalStatus { get; set; }
+        public string? BloodType { get; set; }
+
+        public string? Phone { get; set; }
+        public string? Phone2 { get; set; }
+        public string? Email { get; set; }
+        public string? Address { get; set; }
+        public string? EmergencyContact { get; set; }
+        public string? EmergencyPhone { get; set; }
+
+        public string JobTitle { get; set; } = "";
+        public string ContractType { get; set; } = "fulltime";
+        public string? StaffRole { get; set; }
+        public DateTime? JoinDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public decimal? Salary { get; set; }
+        public string? WorkingHours { get; set; }
+        public string? Qualifications { get; set; }
+        public string? Specialization { get; set; }
+
+        public bool IsActive { get; set; } = true;
+        public string? Notes { get; set; }
+
+        public Guid? UserId { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Guid? DepartmentId { get; set; }
+        public Department? Department { get; set; }
+
+        public Guid? RoleId { get; set; }
+        public Role? Role { get; set; }
+
+        public Guid? DoctorId { get; set; }
+        public Doctor? Doctor { get; set; }
+
+        public Clinic? Clinic { get; set; }
+
+        public bool IsDeleted { get; set; } = false;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+    // ══════════════════════════════════════
+    // قوالب الخطط العلاجية (يحددها كل عيادة حسب سياستها)
+    // ══════════════════════════════════════
+    public class TreatmentPlanTemplate : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public string Name { get; set; } = "";          // "سحب عصب"
+        public string? NameEn { get; set; }
+        public Guid? DepartmentId { get; set; }          // مثلاً: الأسنان
+        public int DefaultSessionsCount { get; set; } = 1;
+        public decimal? DefaultPricePerSession { get; set; }
+        public decimal? DefaultTotalPrice { get; set; }
+
+        // ✅ جديد — لقوالب الزيارة الواحدة (كشف/مراجعة/استشارة/متابعة):
+        // سعر أول مرة وسعر المراجعة، منفصلين عن بعض
+        public decimal? FirstVisitPrice { get; set; }
+        public decimal? FollowUpPrice { get; set; }
+
+        public bool IsActive { get; set; } = true;
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+        public Department? Department { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // الخطة العلاجية الفعلية لمريض معين
+    // ══════════════════════════════════════
+    public class TreatmentPlan : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+        public Guid? DoctorId { get; set; }
+        public Guid? TemplateId { get; set; }            // null = خطة مخصصة يدوية
+
+        public string Name { get; set; } = "";
+        public int TotalSessions { get; set; } = 1;
+
+        public string PricingType { get; set; } = "per_session";  // per_session / total
+        public decimal? PricePerSession { get; set; }
+        public decimal? TotalPrice { get; set; }
+
+        public string PaymentType { get; set; } = "per_session";  // per_session / upfront
+
+        public string Status { get; set; } = "active";  // active / completed / cancelled / paused
+        public DateTime StartDate { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+        public Patient? Patient { get; set; }
+        public Doctor? Doctor { get; set; }
+        public TreatmentPlanTemplate? Template { get; set; }
+        public ICollection<TreatmentSession> Sessions { get; set; } = new List<TreatmentSession>();
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // كل جلسة فعلية بالخطة العلاجية
+    // ══════════════════════════════════════
+    public class TreatmentSession : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid TreatmentPlanId { get; set; }
+        public int SessionNumber { get; set; }            // 1، 2، 3...
+
+        public Guid? AppointmentId { get; set; }           // مرتبطة بموعد فعلي (اختياري)
+        public DateTime? ScheduledDate { get; set; }        // أو مجرد تاريخ متوقع بدون موعد رسمي
+
+        public string Status { get; set; } = "scheduled";  // scheduled / completed / missed / cancelled
+        public DateTime? CompletedAt { get; set; }
+        public decimal? Cost { get; set; }                  // ممكن يختلف عن الافتراضي
+        public bool IsPaid { get; set; } = false;
+        public string? Notes { get; set; }
+
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public TreatmentPlan? TreatmentPlan { get; set; }
+        public Appointment? Appointment { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // إعدادات الطبيب المالية لكل قالب — سطر واحد بـ TemplateId=null يمثل
+    // "الإعداد العام" لهذا الطبيب (يطبّق على كل القوالب)، وأي سطر بـ TemplateId
+    // محدد يمثل استثناء خاص لقالب بعينه (يتجاوز الإعداد العام + سعر القالب نفسه)
+    // ══════════════════════════════════════
+    public class DoctorTemplateSetting : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid DoctorId { get; set; }
+        public Guid? TemplateId { get; set; }   // null = إعداد عام لكل قوالب هذا الطبيب
+
+        // ✅ سعر خاص بهذا الطبيب — لو فاضي، نستخدم سعر القالب العام (FirstVisitPrice/FollowUpPrice)
+        public decimal? FirstVisitPrice { get; set; }
+        public decimal? FollowUpPrice { get; set; }
+
+        // ✅ حصة الطبيب
+        public string CommissionType { get; set; } = "percentage";  // percentage / fixed
+        public decimal? FirstVisitCommissionRate { get; set; }
+        public decimal? FollowUpCommissionRate { get; set; }
+
+        public bool IsActive { get; set; } = true;
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+        public Doctor? Doctor { get; set; }
+        public TreatmentPlanTemplate? Template { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
 }
-
-
-

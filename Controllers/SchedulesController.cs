@@ -24,6 +24,22 @@ namespace ClinicSaaS.API.Controllers
         private static string Msg(string lang, string ar, string en)
             => lang == "ar" ? ar : en;
 
+        // ✅ يحسب الوقت الحالي بتوقيت العيادة المحلي بدل توقيت ثابت
+        private async Task<DateTime> GetClinicNow(Guid clinicId)
+        {
+            var clinic = await _db.Clinics.FindAsync(clinicId);
+            var tzId = clinic?.TimeZone ?? "Asia/Amman";
+            try
+            {
+                var tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            }
+            catch
+            {
+                return DateTime.UtcNow;
+            }
+        }
+
         // ═══════ CLINIC ═══════
 
         [HttpGet("clinic")]
@@ -93,12 +109,31 @@ namespace ClinicSaaS.API.Controllers
         }
 
         [HttpDelete("clinic/{id}")]
-        public async Task<ActionResult> DeleteClinicDay(Guid id)
+        public async Task<ActionResult> DeleteClinicDay(Guid id, [FromQuery] string lang = "ar")
         {
             if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
             var schedule = await _db.ClinicSchedules.FindAsync(id);
             if (schedule == null) return NotFound();
             if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff) return Forbid();
+
+            // ✅ تحقق من وجود مواعيد مستقبلية بالعيادة بنفس يوم الأسبوع
+            // (نجيب المواعيد المرشّحة أولاً، ونقارن DayOfWeek بالذاكرة — EF Core عاجز يترجم
+            // هذا التعبير مباشرة لـ SQL بمزوّد SQL Server ضمن شرط مركّب زي هذا)
+            var upcomingDates = await _db.Appointments
+                .Where(a => a.ClinicId == schedule.ClinicId &&
+                    !a.IsDeleted &&
+                    a.Status != "cancelled" &&
+                    a.AppointmentDate > DateTime.UtcNow)
+                .Select(a => a.AppointmentDate)
+                .ToListAsync();
+
+            var hasUpcoming = upcomingDates.Any(d => d.DayOfWeek == schedule.DayOfWeek);
+
+            if (hasUpcoming)
+                return BadRequest(Msg(lang,
+                    "لا يمكن حذف هذا اليوم لوجود مواعيد مستقبلية مرتبطة به",
+                    "Cannot delete this day — future appointments are linked to it"));
+
             _db.ClinicSchedules.Remove(schedule);
             await _db.SaveChangesAsync();
             return NoContent();
@@ -110,7 +145,7 @@ namespace ClinicSaaS.API.Controllers
         public async Task<ActionResult<IEnumerable<DoctorScheduleResponseDto>>> GetDoctorSchedule(Guid doctorId)
         {
             var doctor = await _db.Doctors.FindAsync(doctorId);
-            if (doctor == null || doctor.isdeleted) return NotFound("الطبيب غير موجود");
+            if (doctor == null || doctor.IsDeleted) return NotFound("الطبيب غير موجود");
             if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
 
             if (_clinicContext.Role == "Doctor")
@@ -121,7 +156,7 @@ namespace ClinicSaaS.API.Controllers
                     .FirstOrDefaultAsync();
                 var doctorRecord = await _db.Doctors
                     .FirstOrDefaultAsync(d => d.Email == userEmail
-                        && d.ClinicId == _clinicContext.ClinicId && !d.isdeleted);
+                        && d.ClinicId == _clinicContext.ClinicId && !d.IsDeleted);
                 if (doctorRecord == null || doctorRecord.Id != doctorId) return Forbid();
             }
 
@@ -144,7 +179,7 @@ namespace ClinicSaaS.API.Controllers
                 return Unauthorized(Msg(lang, "لا توجد عيادة مرتبطة بهذا المستخدم", "No clinic associated"));
 
             var doctor = await _db.Doctors.FindAsync(dto.DoctorId);
-            if (doctor == null || doctor.isdeleted)
+            if (doctor == null || doctor.IsDeleted)
                 return NotFound(Msg(lang, "الطبيب غير موجود", "Doctor not found"));
             if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
@@ -221,7 +256,7 @@ namespace ClinicSaaS.API.Controllers
         }
 
         [HttpDelete("doctor/{id}")]
-        public async Task<ActionResult> DeleteDoctorDay(Guid id)
+        public async Task<ActionResult> DeleteDoctorDay(Guid id, [FromQuery] string lang = "ar")
         {
             if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
             var schedule = await _db.DoctorSchedules
@@ -229,6 +264,23 @@ namespace ClinicSaaS.API.Controllers
                 .FirstOrDefaultAsync(s => s.Id == id);
             if (schedule == null) return NotFound();
             if (!_clinicContext.IsCompanyStaff && schedule.Doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            // ✅ تحقق من وجود مواعيد مستقبلية بنفس يوم الأسبوع لهذا الطبيب
+            var upcomingDates = await _db.Appointments
+                .Where(a => a.DoctorId == schedule.DoctorId &&
+                    !a.IsDeleted &&
+                    a.Status != "cancelled" &&
+                    a.AppointmentDate > DateTime.UtcNow)
+                .Select(a => a.AppointmentDate)
+                .ToListAsync();
+
+            var hasUpcoming = upcomingDates.Any(d => d.DayOfWeek == schedule.DayOfWeek);
+
+            if (hasUpcoming)
+                return BadRequest(Msg(lang,
+                    "لا يمكن حذف هذا اليوم لوجود مواعيد مستقبلية مرتبطة به",
+                    "Cannot delete this day — future appointments are linked to it"));
+
             _db.DoctorSchedules.Remove(schedule);
             await _db.SaveChangesAsync();
             return NoContent();
@@ -238,8 +290,8 @@ namespace ClinicSaaS.API.Controllers
 
         [HttpGet("available-slots")]
         public async Task<ActionResult> GetAvailableSlots(
-     [FromQuery] Guid doctorId,
-     [FromQuery] string date)
+            [FromQuery] Guid doctorId,
+            [FromQuery] string date)
         {
             if (!DateOnly.TryParse(date, out var dateOnly))
                 return BadRequest("تاريخ غير صحيح");
@@ -248,7 +300,7 @@ namespace ClinicSaaS.API.Controllers
             var dayOfWeek = dateValue.DayOfWeek;
 
             var doctor = await _db.Doctors.FindAsync(doctorId);
-            if (doctor == null || doctor.isdeleted) return NotFound("الطبيب غير موجود");
+            if (doctor == null || doctor.IsDeleted) return NotFound("الطبيب غير موجود");
             if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
 
             // ✅ تحقق من إجازة العيادة (يوم كامل)
@@ -291,7 +343,7 @@ namespace ClinicSaaS.API.Controllers
             var end = dateValue.Date.Add(doctorSchedule.EndTime.ToTimeSpan());
 
             var bookedSlots = await _db.Appointments
-                .Where(a => a.DoctorId == doctorId && !a.isdeleted
+                .Where(a => a.DoctorId == doctorId && !a.IsDeleted
                     && a.AppointmentDate >= startOfDay && a.AppointmentDate < endOfDay
                     && a.Status != "cancelled")
                 .Select(a => a.AppointmentDate)
@@ -307,7 +359,10 @@ namespace ClinicSaaS.API.Controllers
                     && a.StartTime != null)
                 .ToListAsync();
 
-            var slots = new List<object>();
+            // ✅ الوقت الحالي بتوقيت العيادة الفعلي، لا توقيت ثابت
+            var nowLocal = await GetClinicNow(doctor.ClinicId);
+
+            var slots = new List<SlotDto>();
             while (current.AddMinutes(doctorSchedule.SlotDuration) <= end)
             {
                 var timeStr = current.ToString("HH:mm");
@@ -317,14 +372,13 @@ namespace ClinicSaaS.API.Controllers
                 // ✅ تحقق إذا الوقت يقع ضمن إجازة جزئية
                 var isAbsent = partialAbsences.Any(a => a.StartTime <= timeOnly && a.EndTime >= timeOnly);
 
-                slots.Add(new
+                slots.Add(new SlotDto
                 {
-                    time = timeStr,
-                    dateTime = current.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    isBooked,
-                    isAbsent,   // ✅ جديد
-                    isAvailable = !isBooked && !isAbsent && current > TimeZoneInfo.ConvertTimeFromUtc(
-                        DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Amman")),
+                    Time = timeStr,
+                    DateTime = current.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    IsBooked = isBooked,
+                    IsAbsent = isAbsent,
+                    IsAvailable = !isBooked && !isAbsent && current > nowLocal,
                 });
                 current = current.AddMinutes(doctorSchedule.SlotDuration);
             }
@@ -340,7 +394,7 @@ namespace ClinicSaaS.API.Controllers
                 firstVisitPrice = doctorSchedule.FirstVisitPrice,
                 followUpPrice = doctorSchedule.FollowUpPrice,
                 totalSlots = slots.Count,
-                availableSlots = slots.Count(s => (bool)s.GetType().GetProperty("isAvailable")!.GetValue(s)!),
+                availableSlots = slots.Count(s => s.IsAvailable),
                 slots,
             });
         }
@@ -383,5 +437,15 @@ namespace ClinicSaaS.API.Controllers
             FollowUpPrice = s.FollowUpPrice,
             IsActive = s.IsActive,
         };
+    }
+
+    // ✅ بديل واضح ونوعي بدل الـ anonymous object + Reflection
+    public class SlotDto
+    {
+        public string Time { get; set; } = default!;
+        public string DateTime { get; set; } = default!;
+        public bool IsBooked { get; set; }
+        public bool IsAbsent { get; set; }
+        public bool IsAvailable { get; set; }
     }
 }

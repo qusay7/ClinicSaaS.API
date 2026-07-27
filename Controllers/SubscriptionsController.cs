@@ -61,75 +61,79 @@ namespace ClinicSaaS.API.Controllers
             return Ok(await ToResponse(subscription));
         }
 
-        // POST: api/subscriptions
-        // SuperAdmin و ClinicStaff فقط — إنشاء اشتراك جديد
-        [HttpPost]
-        [Authorize(Roles = "SuperAdmin,ClinicStaff")]
-        public async Task<ActionResult<SubscriptionResponseDto>> Create([FromBody] CreateSubscriptionDto dto)
-        {
-            // تحقق أن العيادة موجودة
-            var clinic = await _db.Clinics.FindAsync(dto.ClinicId);
-            if (clinic == null)
-                return NotFound("العيادة غير موجودة");
+		// POST: api/subscriptions
+		// SuperAdmin و ClinicStaff فقط — إنشاء اشتراك جديد
+		[HttpPost]
+		[Authorize(Roles = "SuperAdmin,ClinicStaff")]
+		public async Task<ActionResult<SubscriptionResponseDto>> Create([FromBody] CreateSubscriptionDto dto)
+		{
+			var clinic = await _db.Clinics.FindAsync(dto.ClinicId);
+			if (clinic == null)
+				return NotFound("العيادة غير موجودة");
 
-            // تحقق أن الخطة موجودة ونشطة
-            var plan = await _db.Plans.FindAsync(dto.PlanId);
-            if (plan == null || !plan.IsActive)
-                return NotFound("الخطة غير موجودة أو غير نشطة");
+			var plan = await _db.Plans.FindAsync(dto.PlanId);
+			if (plan == null || !plan.IsActive)
+				return NotFound("الخطة غير موجودة أو غير نشطة");
 
-            // تحقق من BillingCycle
-            var validCycles = new[] { "monthly", "yearly" };
-            if (!validCycles.Contains(dto.BillingCycle))
-                return BadRequest("BillingCycle يجب أن يكون monthly أو yearly");
+			var validCycles = new[] { "monthly", "yearly" };
+			if (!validCycles.Contains(dto.BillingCycle))
+				return BadRequest("BillingCycle يجب أن يكون monthly أو yearly");
 
-            // إيقاف الاشتراك القديم إن وجد
-            var oldSubscription = await _db.Subscriptions
-                .FirstOrDefaultAsync(s => s.ClinicId == dto.ClinicId && s.IsActive);
+			var endDate = dto.BillingCycle == "yearly"
+				? dto.StartDate.AddYears(1)
+				: dto.StartDate.AddMonths(1);
 
-            if (oldSubscription != null)
-            {
-                oldSubscription.IsActive = false;
-            }
+			var pricePaid = dto.BillingCycle == "yearly"
+				? plan.YearlyPrice
+				: plan.MonthlyPrice;
 
-            // حساب تاريخ الانتهاء
-            var endDate = dto.BillingCycle == "yearly"
-                ? dto.StartDate.AddYears(1)
-                : dto.StartDate.AddMonths(1);
+			using var transaction = await _db.Database.BeginTransactionAsync();
+			try
+			{
+				var oldSubscription = await _db.Subscriptions
+					.FirstOrDefaultAsync(s => s.ClinicId == dto.ClinicId && s.IsActive);
 
-            // السعر المدفوع حسب الدورة
-            var pricePaid = dto.BillingCycle == "yearly"
-                ? plan.YearlyPrice
-                : plan.MonthlyPrice;
+				if (oldSubscription != null)
+				{
+					oldSubscription.IsActive = false;
+					await _db.SaveChangesAsync();
+				}
 
-            var subscription = new Subscription
-            {
-                Id = Guid.NewGuid(),
-                CreatedAt = DateTime.UtcNow,
-                IsActive = true,
-                ClinicId = dto.ClinicId,
-                PlanId = dto.PlanId,
-                BillingCycle = dto.BillingCycle,
-                StartDate = dto.StartDate,
-                EndDate = endDate,
-                PricePaid = pricePaid
-            };
+				var subscription = new Subscription
+				{
+					Id = Guid.NewGuid(),
+					CreatedAt = DateTime.UtcNow,
+					IsActive = true,
+					ClinicId = dto.ClinicId,
+					PlanId = dto.PlanId,
+					BillingCycle = dto.BillingCycle,
+					StartDate = dto.StartDate,
+					EndDate = endDate,
+					PricePaid = pricePaid
+				};
 
-            _db.Subscriptions.Add(subscription);
-            await _db.SaveChangesAsync();
+				_db.Subscriptions.Add(subscription);
+				await _db.SaveChangesAsync();
+				await transaction.CommitAsync();
 
-            // جلب البيانات للـ Response
-            await _db.Entry(subscription).Reference(s => s.Clinic).LoadAsync();
-            await _db.Entry(subscription).Reference(s => s.Plan).LoadAsync();
+				await _db.Entry(subscription).Reference(s => s.Clinic).LoadAsync();
+				await _db.Entry(subscription).Reference(s => s.Plan).LoadAsync();
 
-            return CreatedAtAction(
-                nameof(GetByClinic),
-                new { clinicId = subscription.ClinicId },
-                await ToResponse(subscription));
-        }
+				return CreatedAtAction(
+					nameof(GetByClinic),
+					new { clinicId = subscription.ClinicId },
+					await ToResponse(subscription));
+			}
+			catch (DbUpdateException)
+			{
+				await transaction.RollbackAsync();
+				return BadRequest("يوجد اشتراك نشط قيد الإنشاء لهذه العيادة، حاول مرة أخرى");
+			}
+		}
 
-        // PATCH: api/subscriptions/{id}/cancel
-        // إلغاء اشتراك
-        [HttpPatch("{id}/cancel")]
+		// PATCH: api/subscriptions/{id}/cancel
+		// إلغاء اشتراك
+		[HttpPatch("{id}/cancel")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff")]
         public async Task<ActionResult> Cancel(Guid id)
         {
@@ -156,11 +160,11 @@ namespace ClinicSaaS.API.Controllers
 
             // عدد الأطباء الحاليين
             var currentDoctors = await _db.Doctors
-                .CountAsync(d => d.ClinicId == s.ClinicId && !d.isdeleted && d.IsActive);
+                .CountAsync(d => d.ClinicId == s.ClinicId && !d.IsDeleted  && d.IsActive);
 
             // عدد المرضى الحاليين
             var currentPatients = await _db.Patients
-                .CountAsync(p => p.ClinicId == s.ClinicId && !p.isdeleted);
+                .CountAsync(p => p.ClinicId == s.ClinicId && !p.IsDeleted );
 
             return new SubscriptionResponseDto
             {
@@ -187,3 +191,10 @@ namespace ClinicSaaS.API.Controllers
         }
     }
 }
+
+
+
+
+
+
+

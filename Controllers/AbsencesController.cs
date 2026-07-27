@@ -68,7 +68,7 @@ namespace ClinicSaaS.API.Controllers
             if (dto.DoctorId.HasValue)
             {
                 var doctor = await _db.Doctors.FindAsync(dto.DoctorId.Value);
-                if (doctor == null || doctor.isdeleted)
+                if (doctor == null || doctor.IsDeleted )
                     return BadRequest(Msg(lang, "الطبيب غير موجود", "Doctor not found"));
                 if (doctor.ClinicId != _clinicContext.ClinicId)
                     return Forbid();
@@ -130,7 +130,7 @@ namespace ClinicSaaS.API.Controllers
             if (absence == null) return NotFound();
             if (absence.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            _db.Absences.Remove(absence);
+            absence.IsDeleted = true;   // ✅ حذف منطقي بدل الحذف الفعلي
             await _db.SaveChangesAsync();
 
             return Ok(new { message = Msg(lang, "تم حذف الإجازة", "Absence deleted") });

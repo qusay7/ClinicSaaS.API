@@ -28,7 +28,7 @@ namespace ClinicSaaS.API.Controllers
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
                 .Include(a => a.Doctor)
-                .FirstOrDefaultAsync(a => a.Id == appointmentId && !a.isdeleted);
+                .FirstOrDefaultAsync(a => a.Id == appointmentId && !a.IsDeleted);
 
             if (appointment == null) return NotFound("الموعد غير موجود");
             if (appointment.ClinicId != _clinicContext.ClinicId) return Forbid();

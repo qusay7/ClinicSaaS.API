@@ -9,5 +9,7 @@
         public string Role { get; set; } = default!;
         public Guid? DepartmentId { get; set; }
         public Guid? ClinicId { get; set; }
+
+        public Guid? StaffId { get; set; }  // ✅ اختياري: ربط المستخدم بموظف موجود مسبقاً
     }
 }

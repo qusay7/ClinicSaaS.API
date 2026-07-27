@@ -14,24 +14,41 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly IRoleSeedingService _roleSeedingService;   // ✅ جديد
 
-        public RolesController(ApplicationDbContext db, IClinicContext clinicContext)
+        public RolesController(ApplicationDbContext db, IClinicContext clinicContext, IRoleSeedingService roleSeedingService)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _roleSeedingService = roleSeedingService;
         }
 
         // GET: api/roles
         // جلب كل الأدوار مع صلاحياتها
+        // ✅ ?clinicId= اختياري — يُستخدم بس لو SuperAdmin يبي أدوار عيادة معينة
+        // (لو مو SuperAdmin، نتجاهل الباراميتر ونستخدم عيادته هو دايماً — حماية أمنية)
         [HttpGet]
-        [Authorize(Roles = "SuperAdmin")]
-        public async Task<ActionResult<IEnumerable<RoleResponseDto>>> GetAll()
+        [Authorize]
+        public async Task<ActionResult<IEnumerable<RoleResponseDto>>> GetAll([FromQuery] Guid? clinicId = null)
         {
-            var roles = await _db.Roles
+            var query = _db.Roles
                 .Include(r => r.RolePermissions)
                     .ThenInclude(rp => rp.Permission)
-                .Where(r => r.IsActive)
-                .ToListAsync();
+                .Where(r => r.IsActive);
+
+            if (_clinicContext.IsSuperAdmin)
+            {
+                // ✅ SuperAdmin يقدر يحدد عيادة معينة، وإلا يرى كل الأدوار
+                if (clinicId.HasValue)
+                    query = query.Where(r => r.ClinicId == clinicId);
+            }
+            else
+            {
+                if (_clinicContext.ClinicId == null) return Unauthorized();
+                query = query.Where(r => r.ClinicId == _clinicContext.ClinicId);
+            }
+
+            var roles = await query.ToListAsync();
 
             var allPermissions = await _db.Permissions
                 .OrderBy(p => p.Group)
@@ -43,6 +60,7 @@ namespace ClinicSaaS.API.Controllers
                 Name = r.Name,
                 Description = r.Description,
                 IsActive = r.IsActive,
+                ClinicId = r.ClinicId,   // ✅ جديد — يفيد الفرونت إند لو يعرض أدوار متعددة عيادات
                 Permissions = allPermissions.Select(p => new PermissionDto
                 {
                     Id = p.Id,
@@ -166,8 +184,9 @@ namespace ClinicSaaS.API.Controllers
 
             // جلب الأدوار القابلة للتخصيص
             var roles = await _db.Roles
-                .Where(r => r.Name == "Doctor" || r.Name == "Receptionist" || r.Name == "ClinicAdmin")
-                .ToListAsync();
+                       .Where(r => (r.Name == "Doctor" || r.Name == "Receptionist" || r.Name == "ClinicAdmin")
+                        && r.ClinicId == clinicId)
+                        .ToListAsync();
 
             var result = new List<object>();
 
@@ -238,19 +257,22 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // PUT: api/roles/clinic-permissions/{roleId}
+
         [HttpPut("clinic-permissions/{roleId}")]
         [Authorize(Roles = "ClinicAdmin")]
         public async Task<ActionResult> UpdateClinicPermissions(
-            Guid roleId, [FromBody] List<string> permissionNames)
+    Guid roleId, [FromBody] List<string> permissionNames)
         {
             var clinicId = _clinicContext.ClinicId;
             if (!clinicId.HasValue) return Unauthorized();
 
-            // تحقق أن الدور موجود
             var role = await _db.Roles.FindAsync(roleId);
             if (role == null) return NotFound();
 
-            // لا يمكن تعديل SuperAdmin
+            // ✅ تحقق أن الدور يتبع لنفس عيادة المستخدم
+            if (role.ClinicId != clinicId)
+                return Forbid();
+
             if (role.Name == "SuperAdmin") return BadRequest("لا يمكن تعديل صلاحيات SuperAdmin");
 
             // احذف الصلاحيات الخاصة بهذه العيادة لهذا الدور
@@ -259,7 +281,6 @@ namespace ClinicSaaS.API.Controllers
                 .ToListAsync();
             _db.RolePermissions.RemoveRange(oldPerms);
 
-            // أضف الجديدة
             foreach (var name in permissionNames)
             {
                 var perm = await _db.Permissions
@@ -271,7 +292,7 @@ namespace ClinicSaaS.API.Controllers
                         Id = Guid.NewGuid(),
                         RoleId = roleId,
                         PermissionId = perm.Id,
-                        ClinicId = clinicId,  // ✅ مخصص لهذه العيادة
+                        ClinicId = clinicId,
                     });
                 }
             }
@@ -293,6 +314,7 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(perms);
         }
+
         // POST: api/roles/seed-defaults/{clinicId}
         [HttpPost("seed-defaults/{clinicId}")]
         [Authorize(Roles = "SuperAdmin")]
@@ -301,76 +323,7 @@ namespace ClinicSaaS.API.Controllers
             var clinic = await _db.Clinics.FindAsync(clinicId);
             if (clinic == null) return NotFound("العيادة غير موجودة");
 
-            var allPermissions = await _db.Permissions.ToListAsync();
-
-            var defaultRoles = new[]
-   {
-    new { Name = "ClinicAdmin",  NameEn = "Clinic Admin",  Description = "مدير العيادة" },
-    new { Name = "Doctor",       NameEn = "Doctor",        Description = "طبيب" },
-    new { Name = "Receptionist", NameEn = "Receptionist",  Description = "موظف استقبال" },
-    new { Name = "ClinicStaff",  NameEn = "Clinic Staff",  Description = "موظف العيادة" },
-};
-
-            var permMap = new Dictionary<string, string[]>
-            {
-                ["ClinicAdmin"] = new[] { "patients.view", "patients.create", "patients.edit", "patients.delete", "doctors.view", "doctors.create", "doctors.edit", "doctors.delete", "appointments.view", "appointments.create", "appointments.edit", "appointments.delete", "schedules.view", "schedules.manage", "users.view", "users.create", "departments.manage", "settings.view", "settings.edit", "reports.view" },
-                ["Doctor"] = new[] { "patients.view", "appointments.view", "appointments.create", "appointments.edit", "schedules.view" },
-                ["Receptionist"] = new[] { "patients.view", "patients.create", "patients.edit", "appointments.view", "appointments.create", "appointments.edit", "schedules.view" },
-                ["ClinicStaff"] = new[] { "patients.view", "appointments.view", "schedules.view", "reports.view" },
-            };
-
-            int added = 0;
-            foreach (var roleData in defaultRoles)
-            {
-                var exists = await _db.Roles.AnyAsync(r => r.Name == roleData.Name && r.ClinicId == clinicId);
-                if (exists) continue;
-
-                var role = new Role
-                {
-                    Id = Guid.NewGuid(),
-                    Name = roleData.Name,
-                    NameEn = roleData.NameEn, // ✅
-                    Description = roleData.Description,
-                    ClinicId = clinicId,
-                    IsActive = true,
-                    IsSystem = true,
-                };
-                _db.Roles.Add(role);
-                await _db.SaveChangesAsync();
-
-                if (permMap.ContainsKey(roleData.Name))
-                {
-                    foreach (var permName in permMap[roleData.Name])
-                    {
-                        var perm = allPermissions.FirstOrDefault(p => p.Name == permName);
-                        if (perm != null)
-                        {
-                            _db.RolePermissions.Add(new RolePermission
-                            {
-                                Id = Guid.NewGuid(),
-                                RoleId = role.Id,
-                                PermissionId = perm.Id,
-                                ClinicId = null,
-                            });
-                        }
-                    }
-                    await _db.SaveChangesAsync();
-                    added++;
-                }
-
-                // ✅ ربط المستخدمين الموجودين بهذا الدور تلقائياً
-                var usersWithRole = await _db.Users
-                    .Where(u => u.ClinicId == clinicId
-                        && u.Role == roleData.Name
-                        && u.RoleId == null)
-                    .ToListAsync();
-
-                foreach (var user in usersWithRole)
-                {
-                    user.RoleId = role.Id;
-                }
-                await _db.SaveChangesAsync();
-            }
+            var added = await _roleSeedingService.SeedDefaultRoles(clinicId);
 
             return Ok(new { message = $"تم إنشاء {added} أدوار وربط المستخدمين تلقائياً" });
         }

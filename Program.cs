@@ -64,7 +64,9 @@ builder.Services.AddScoped<IClinicContext, ClinicContext>();
 builder.Services.AddScoped<SubscriptionService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<ReminderBackgroundService>();
-
+builder.Services.AddScoped<IRoleSeedingService, RoleSeedingService>();
+builder.Services.AddScoped<IDepartmentSeedingService, DepartmentSeedingService>();
+builder.Services.AddScoped<ITreatmentTemplateSeedingService, TreatmentTemplateSeedingService>();   // ✅ جديد
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy =>

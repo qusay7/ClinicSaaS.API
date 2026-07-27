@@ -1,13 +1,16 @@
 ﻿namespace ClinicSaaS.API.DTOs.Plans
 {
+    // CreatePlanDto.cs
     public class CreatePlanDto
     {
-        public string Name { get; set; } = default!;// اسم الباقة (مثلاً: Basic, Pro, Enterprise)
-        public string? Description { get; set; }// وصف الباقة (اختياري)
-        public decimal MonthlyPrice { get; set; }// السعر الشهري
-        public decimal YearlyPrice { get; set; }// السعر السنوي
-        public int MaxUsers { get; set; }    // -1 = غير محدود عدد المستخدمين
-        public int MaxDoctors { get; set; }  // -1 = غير محدود عدد الأطباء
-        public int MaxPatients { get; set; } // -1 = غير محدود عدد المرضى
+        public string Name { get; set; } = default!;
+        public string? Description { get; set; }
+        public decimal MonthlyPrice { get; set; }
+        public decimal YearlyPrice { get; set; }
+        public int MaxUsers { get; set; }
+        public int MaxDoctors { get; set; }
+        public int MaxPatients { get; set; }
+        public string? FeaturesText { get; set; }   // ✅ جديد — كل ميزة بسطر (\n)
+        public bool IsFeatured { get; set; } = false; // ✅ جديد
     }
 }

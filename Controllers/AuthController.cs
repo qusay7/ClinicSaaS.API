@@ -13,30 +13,38 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly JwtService _jwtService;
+        private readonly IConfiguration _config;
 
-        public AuthController(ApplicationDbContext db, JwtService jwtService)
+        public AuthController(ApplicationDbContext db, JwtService jwtService, IConfiguration config)
         {
             _db = db;
             _jwtService = jwtService;
+            _config = config;
         }
 
         // ─── Helper ───────────────────────────────────────────────────────────
         private static string Msg(string lang, string ar, string en)
             => lang == "ar" ? ar : en;
 
-        // POST: api/auth/setup
         [HttpPost("setup")]
-        public async Task<ActionResult> Setup()
+        public async Task<ActionResult> Setup([FromQuery] string setupKey, [FromBody] SetupSuperAdminDto dto)
         {
+            var expectedKey = _config["Setup:SecretKey"];
+            if (string.IsNullOrEmpty(expectedKey) || setupKey != expectedKey)
+                return Unauthorized("مفتاح الإعداد غير صحيح");
+
             var exists = await _db.Users.AnyAsync(u => u.Role == "SuperAdmin");
             if (exists) return BadRequest("Super Admin already exists.");
+
+            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 8)
+                return BadRequest("كلمة المرور يجب أن تكون 8 أحرف على الأقل");
 
             var superAdmin = new User
             {
                 Id = Guid.NewGuid(),
-                FullName = "Super Admin",
-                Email = "admin@clinicsaas.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123"),
+                FullName = dto.FullName ?? "Super Admin",
+                Email = dto.Email ?? "admin@clinicsaas.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 Role = "SuperAdmin",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
@@ -198,32 +206,39 @@ namespace ClinicSaaS.API.Controllers
 
         // POST: api/auth/seed-permissions
         [HttpPost("seed-permissions")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult> SeedPermissions()
         {
             var permissions = new[]
             {
-                new { Name="patients.view",         Module="patients",      DisplayName="عرض المرضى",       Group="المرضى"       },
-                new { Name="patients.create",       Module="patients",      DisplayName="إضافة مريض",       Group="المرضى"       },
-                new { Name="patients.edit",         Module="patients",      DisplayName="تعديل مريض",       Group="المرضى"       },
-                new { Name="patients.delete",       Module="patients",      DisplayName="حذف مريض",         Group="المرضى"       },
-                new { Name="doctors.view",          Module="doctors",       DisplayName="عرض الأطباء",       Group="الأطباء"      },
-                new { Name="doctors.create",        Module="doctors",       DisplayName="إضافة طبيب",       Group="الأطباء"      },
-                new { Name="doctors.edit",          Module="doctors",       DisplayName="تعديل طبيب",       Group="الأطباء"      },
-                new { Name="doctors.delete",        Module="doctors",       DisplayName="حذف طبيب",         Group="الأطباء"      },
-                new { Name="appointments.view",     Module="appointments",  DisplayName="عرض المواعيد",     Group="المواعيد"     },
-                new { Name="appointments.create",   Module="appointments",  DisplayName="إضافة موعد",       Group="المواعيد"     },
-                new { Name="appointments.edit",     Module="appointments",  DisplayName="تعديل موعد",       Group="المواعيد"     },
-                new { Name="appointments.delete",   Module="appointments",  DisplayName="حذف موعد",         Group="المواعيد"     },
-                new { Name="schedules.view",        Module="schedules",     DisplayName="عرض الجداول",      Group="الجداول"      },
-                new { Name="schedules.manage",      Module="schedules",     DisplayName="إدارة الجداول",    Group="الجداول"      },
-                new { Name="users.view",            Module="users",         DisplayName="عرض المستخدمين",   Group="المستخدمون"   },
-                new { Name="users.create",          Module="users",         DisplayName="إضافة مستخدم",     Group="المستخدمون"   },
-                new { Name="departments.manage",    Module="departments",   DisplayName="إدارة الأقسام",     Group="الأقسام"      },
-                new { Name="settings.view",         Module="settings",      DisplayName="عرض الإعدادات",     Group="الإعدادات"    },
-                new { Name="settings.edit",         Module="settings",      DisplayName="تعديل الإعدادات",   Group="الإعدادات"    },
+                new { Name="patients.view",         Module="patients",      DisplayName="عرض المرضى",            Group="المرضى"       },
+                new { Name="patients.create",       Module="patients",      DisplayName="إضافة مريض",            Group="المرضى"       },
+                new { Name="patients.edit",         Module="patients",      DisplayName="تعديل مريض",            Group="المرضى"       },
+                new { Name="patients.delete",       Module="patients",      DisplayName="حذف مريض",              Group="المرضى"       },
+                new { Name="doctors.view",          Module="doctors",       DisplayName="عرض الأطباء",            Group="الأطباء"       },
+                new { Name="doctors.create",        Module="doctors",       DisplayName="إضافة طبيب",            Group="الأطباء"       },
+                new { Name="doctors.edit",          Module="doctors",       DisplayName="تعديل طبيب",            Group="الأطباء"       },
+                new { Name="doctors.delete",        Module="doctors",       DisplayName="حذف طبيب",              Group="الأطباء"       },
+                new { Name="appointments.view",     Module="appointments",  DisplayName="عرض المواعيد",          Group="المواعيد"     },
+                new { Name="appointments.create",   Module="appointments",  DisplayName="إضافة موعد",            Group="المواعيد"     },
+                new { Name="appointments.edit",     Module="appointments",  DisplayName="تعديل موعد",            Group="المواعيد"     },
+                new { Name="appointments.delete",   Module="appointments",  DisplayName="حذف موعد",              Group="المواعيد"     },
+                new { Name="schedules.view",        Module="schedules",     DisplayName="عرض الجداول",           Group="الجداول"      },
+                new { Name="schedules.manage",      Module="schedules",     DisplayName="إدارة الجداول",         Group="الجداول"      },
+                new { Name="users.view",            Module="users",         DisplayName="عرض المستخدمين",        Group="المستخدمون"   },
+                new { Name="users.create",          Module="users",         DisplayName="إضافة مستخدم",          Group="المستخدمون"   },
+                new { Name="departments.manage",    Module="departments",   DisplayName="إدارة الأقسام",          Group="الأقسام"       },
+                new { Name="settings.view",         Module="settings",      DisplayName="عرض الإعدادات",          Group="الإعدادات"     },
+                new { Name="settings.edit",         Module="settings",      DisplayName="تعديل الإعدادات",        Group="الإعدادات"     },
                 new { Name="reports.view",          Module="reports",       DisplayName="عرض التقارير",          Group="التقارير"     },
-                new { Name="insurance.view",        Module="insurance",     DisplayName="عرض التأمين الصحي",     Group="'التأمين "     },
-            };
+                new { Name="insurance.view",        Module="insurance",     DisplayName="عرض التأمين الصحي",     Group="'التأمين "    },
+                new { Name="payments.view",         Module="payments",      DisplayName="المدفوعات",             Group="'المدفوعات "  },
+                new { Name="staff.view",            Module="staff",         DisplayName="فريق العمل",            Group="'فريق العمل " },
+                new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
+                new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },
+                new { Name="visitnotes.edit",       Module="visitnotes",    DisplayName="تعديل ملاحظة زيارة",     Group="ملاحظات الزيارة" },
+                new { Name="treatmenttemplates.manage", Module="treatmenttemplates", DisplayName="إدارة قوالب الزيارة", Group="قوالب الزيارة" },
+             };
 
             int added = 0;
             foreach (var p in permissions)

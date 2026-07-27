@@ -14,11 +14,13 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly IRoleSeedingService _roleSeedingService;   // ✅ جديد
 
-        public AppointmentsController(ApplicationDbContext db, IClinicContext clinicContext)
+        public AppointmentsController(ApplicationDbContext db, IClinicContext clinicContext, IRoleSeedingService roleSeedingService)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _roleSeedingService = roleSeedingService;
         }
 
         private static string Msg(string? lang, string ar, string en)
@@ -28,7 +30,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetAll()
         {
-            var query = _db.Appointments.Where(a => !a.isdeleted);
+            var query = _db.Appointments.Where(a => !a.IsDeleted);
 
             if (!_clinicContext.IsCompanyStaff)
             {
@@ -42,7 +44,7 @@ namespace ClinicSaaS.API.Controllers
                     var doctorRecord = await _db.Doctors
                         .FirstOrDefaultAsync(d => d.UserId == _clinicContext.UserId
                             && d.ClinicId == _clinicContext.ClinicId
-                            && !d.isdeleted);
+                            && !d.IsDeleted);
 
                     if (doctorRecord != null)
                         query = query.Where(a => a.DoctorId == doctorRecord.Id);
@@ -57,7 +59,27 @@ namespace ClinicSaaS.API.Controllers
                 .Include(a => a.Doctor)
                 .ToListAsync();
 
-            return Ok(appointments.Select(a => ToResponse(a)).ToList());
+            // ✅ نجيب حالة الدفع لكل المواعيد بضربة استعلام واحدة — بدل طلب منفصل لكل صف بالقائمة
+            var appointmentIds = appointments.Select(a => a.Id).ToList();
+            var payments = await _db.PaymentDetails
+                .Where(p => appointmentIds.Contains(p.AppointmentId))
+                .ToListAsync();
+            var paymentLookup = payments.ToDictionary(p => p.AppointmentId, p => p);
+
+            var result = appointments.Select(a =>
+            {
+                var dto = ToResponse(a);
+                if (paymentLookup.TryGetValue(a.Id, out var payment))
+                {
+                    dto.IsPaid = payment.IsPaid;
+                    dto.AmountPaid = payment.AmountPaid;
+                    dto.PatientBalance = payment.PatientBalance;
+                }
+                // ✅ ما فيه سجل دفعة إطلاقاً — IsPaid تبقى null (يعني "ما انسجّل شي بعد"، مختلف عن false)
+                return dto;
+            }).ToList();
+
+            return Ok(result);
         }
 
         // GET: api/appointments/{id}
@@ -66,7 +88,7 @@ namespace ClinicSaaS.API.Controllers
         {
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == id && !a.isdeleted);
+                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
 
             if (appointment == null) return NotFound();
 
@@ -87,7 +109,7 @@ namespace ClinicSaaS.API.Controllers
             var tomorrow = today.AddDays(1);
 
             var query = _db.Appointments
-                .Where(a => !a.isdeleted
+                .Where(a => !a.IsDeleted
                     && a.AppointmentDate >= today
                     && a.AppointmentDate < tomorrow
                     && a.DoctorId != null);
@@ -119,11 +141,11 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet("patient/{patientId}")]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetByPatient(Guid patientId)
         {
-            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == patientId && !p.isdeleted);
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == patientId && !p.IsDeleted);
             if (patient == null) return NotFound("المريض غير موجود");
             if (!_clinicContext.IsSuperAdmin && patient.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            var query = _db.Appointments.Where(a => a.PatientId == patientId && !a.isdeleted);
+            var query = _db.Appointments.Where(a => a.PatientId == patientId && !a.IsDeleted);
             if (!_clinicContext.IsCompanyStaff)
                 query = query.Where(a => a.ClinicId == _clinicContext.ClinicId);
 
@@ -149,10 +171,12 @@ namespace ClinicSaaS.API.Controllers
             if (_clinicContext.ClinicId == null)
                 return Unauthorized(Msg(lang, "لا توجد عيادة مرتبطة بهذا المستخدم", "No clinic associated with this user"));
 
-            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.isdeleted);
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.IsDeleted);
             if (patient == null)
                 return BadRequest(Msg(lang, "المريض غير موجود", "Patient not found"));
             if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            int? slotDurationForFinalCheck = null;
 
             if (dto.DoctorId.HasValue)
             {
@@ -182,7 +206,7 @@ namespace ClinicSaaS.API.Controllers
                 if (clinicSchedule == null)
                     return BadRequest(Msg(lang, "العيادة مغلقة في هذا اليوم", "Clinic is closed on this day"));
 
-                // 2 — ✅ تحقق من إجازة العيادة
+                // 2 — تحقق من إجازة العيادة
                 var clinicAbsent = await _db.Absences.AnyAsync(a =>
                     a.ClinicId == clinicId &&
                     a.DoctorId == null &&
@@ -202,7 +226,7 @@ namespace ClinicSaaS.API.Controllers
                 if (doctorSchedule == null)
                     return BadRequest(Msg(lang, "الطبيب لا يعمل في هذا اليوم", "Doctor does not work on this day"));
 
-                // 4 — ✅ تحقق من إجازة الطبيب (يوم كامل)
+                // 4 — تحقق من إجازة الطبيب (يوم كامل)
                 var doctorAbsent = await _db.Absences.AnyAsync(a =>
                     a.ClinicId == clinicId &&
                     a.DoctorId == dto.DoctorId &&
@@ -215,7 +239,7 @@ namespace ClinicSaaS.API.Controllers
                         "الطبيب في إجازة في هذا اليوم",
                         "Doctor is on leave on this day"));
 
-                // 5 — ✅ تحقق من إجازة الطبيب (فترة محددة)
+                // 5 — تحقق من إجازة الطبيب (فترة محددة)
                 var doctorPartialAbsent = await _db.Absences.AnyAsync(a =>
                     a.ClinicId == clinicId &&
                     a.DoctorId == dto.DoctorId &&
@@ -240,7 +264,7 @@ namespace ClinicSaaS.API.Controllers
                 var slotEnd = dto.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration);
                 var isConflict = await _db.Appointments.AnyAsync(a =>
                     a.DoctorId == dto.DoctorId
-                    && !a.isdeleted
+                    && !a.IsDeleted
                     && a.Status != "cancelled"
                     && a.AppointmentDate < slotEnd
                     && a.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration) > dto.AppointmentDate);
@@ -250,17 +274,20 @@ namespace ClinicSaaS.API.Controllers
                         "هذا الموعد محجوز مسبقاً — اختر وقتاً آخر",
                         "This slot is already booked — please choose another time"));
 
-                // 8 — تحديد السعر تلقائياً
+                // 8 — تحديد السعر تلقائياً (يراعي: سعر خاص للطبيب بهذا القالب ← سعر القالب العام ← دوام الطبيب كـ fallback)
+                var hasVisited = await _db.Appointments.AnyAsync(a =>
+                    a.PatientId == dto.PatientId
+                    && a.DoctorId == dto.DoctorId
+                    && !a.IsDeleted
+                    && a.Status == "completed");
+
                 if (dto.Price == null)
                 {
-                    var hasVisited = await _db.Appointments.AnyAsync(a =>
-                        a.PatientId == dto.PatientId
-                        && a.DoctorId == dto.DoctorId
-                        && !a.isdeleted
-                        && a.Status == "completed");
-
-                    dto.Price = hasVisited ? doctorSchedule.FollowUpPrice : doctorSchedule.FirstVisitPrice;
+                    dto.Price = await ResolveVisitPrice(dto.DoctorId.Value, dto.TemplateId, !hasVisited, doctorSchedule);
                 }
+
+                // نحتفظ بمدة الفترة لاستخدامها بالفحص الأخير قبل الحفظ
+                slotDurationForFinalCheck = doctorSchedule.SlotDuration;
             }
 
             if (dto.AppointmentDate <= DateTime.UtcNow)
@@ -268,17 +295,35 @@ namespace ClinicSaaS.API.Controllers
                     "تاريخ الموعد يجب أن يكون في المستقبل",
                     "Appointment date must be in the future"));
 
+            // ✅ فحص أخير للتعارض مباشرة قبل الحفظ — يقلل احتمال الحجز المزدوج
+            if (dto.DoctorId.HasValue && slotDurationForFinalCheck.HasValue)
+            {
+                var finalSlotEnd = dto.AppointmentDate.AddMinutes(slotDurationForFinalCheck.Value);
+                var stillConflict = await _db.Appointments.AnyAsync(a =>
+                    a.DoctorId == dto.DoctorId
+                    && !a.IsDeleted
+                    && a.Status != "cancelled"
+                    && a.AppointmentDate < finalSlotEnd
+                    && a.AppointmentDate.AddMinutes(slotDurationForFinalCheck.Value) > dto.AppointmentDate);
+
+                if (stillConflict)
+                    return BadRequest(Msg(lang,
+                        "هذا الموعد حُجز للتو من مستخدم آخر — اختر وقتاً آخر",
+                        "This slot was just booked by someone else — please choose another time"));
+            }
+
             var appointment = new Appointment
             {
                 Id = Guid.NewGuid(),
                 CreatedAt = DateTime.UtcNow,
-                isdeleted = false,
+                IsDeleted = false,
                 ClinicId = _clinicContext.ClinicId.Value,
                 PatientId = dto.PatientId,
                 DoctorId = dto.DoctorId,
                 AppointmentDate = dto.AppointmentDate,
                 Type = dto.Type,
                 Price = dto.Price,
+                TemplateId = dto.TemplateId,   // ✅ قالب الزيارة (كشف/مراجعة/استشارة/متابعة أو مخصص)
                 Status = "scheduled",
                 Notes = dto.Notes,
                 Notes2 = dto.Notes2,
@@ -294,16 +339,18 @@ namespace ClinicSaaS.API.Controllers
 
             return CreatedAtAction(nameof(GetById), new { id = appointment.Id }, ToResponse(appointment));
         }
-
+        // PUT: api/appointments/{id}
         // PUT: api/appointments/{id}
         [HttpPut("{id}")]
         public async Task<ActionResult<AppointmentResponseDto>> Update(Guid id, [FromBody] UpdateAppointmentDto dto)
         {
+            var lang = "ar"; // عدّلها إذا الـ DTO عندك فيه Lang زي Create
+
             if (!_clinicContext.HasPermission("appointments.edit")) return Forbid();
 
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == id && !a.isdeleted);
+                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
 
             if (appointment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
@@ -311,13 +358,13 @@ namespace ClinicSaaS.API.Controllers
             if (_clinicContext.Role == "Doctor")
             {
                 var myDoctor = await _db.Doctors.FirstOrDefaultAsync(d =>
-                    d.UserId == _clinicContext.UserId && d.ClinicId == _clinicContext.ClinicId && !d.isdeleted);
+                    d.UserId == _clinicContext.UserId && d.ClinicId == _clinicContext.ClinicId && !d.IsDeleted);
                 if (myDoctor == null || appointment.DoctorId != myDoctor.Id) return Forbid();
             }
 
             if (dto.PatientId != appointment.PatientId)
             {
-                var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.isdeleted);
+                var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.IsDeleted);
                 if (patient == null) return BadRequest("المريض غير موجود");
                 if (!_clinicContext.IsSuperAdmin && patient.ClinicId != _clinicContext.ClinicId) return Forbid();
                 appointment.PatientId = dto.PatientId;
@@ -326,6 +373,89 @@ namespace ClinicSaaS.API.Controllers
             var validStatuses = new[] { "scheduled", "confirmed", "completed", "cancelled" };
             if (!string.IsNullOrEmpty(dto.Status) && !validStatuses.Contains(dto.Status))
                 return BadRequest("Status يجب أن يكون: scheduled أو confirmed أو completed أو cancelled");
+
+            // ✅ هل تغيّر الوقت أو الطبيب؟ لو نعم، لازم نعيد فحص كل قواعد الحجز
+            var newDate = dto.AppointmentDate ?? appointment.AppointmentDate;
+            var newDoctorId = dto.DoctorId;
+            var scheduleChanged = newDate != appointment.AppointmentDate || newDoctorId != appointment.DoctorId;
+
+            if (scheduleChanged && newDoctorId.HasValue)
+            {
+                var clinic = await _db.Clinics.FindAsync(appointment.ClinicId);
+                var tzId = clinic?.TimeZone ?? "Asia/Amman";
+
+                DateTime appointmentLocal;
+                try
+                {
+                    var tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+                    var utcTime = newDate.Kind == DateTimeKind.Utc ? newDate : newDate.ToUniversalTime();
+                    appointmentLocal = TimeZoneInfo.ConvertTimeFromUtc(utcTime, tz);
+                }
+                catch { appointmentLocal = newDate; }
+
+                var dayOfWeek = appointmentLocal.DayOfWeek;
+                var timeOfDay = TimeOnly.FromTimeSpan(appointmentLocal.TimeOfDay);
+                var clinicId = appointment.ClinicId;
+
+                // 1 — العيادة مفتوحة؟
+                var clinicSchedule = await _db.ClinicSchedules
+                    .FirstOrDefaultAsync(s => s.ClinicId == clinicId && s.DayOfWeek == dayOfWeek && s.IsActive);
+                if (clinicSchedule == null)
+                    return BadRequest(Msg(lang, "العيادة مغلقة في هذا اليوم", "Clinic is closed on this day"));
+
+                // 2 — إجازة العيادة؟
+                var clinicAbsent = await _db.Absences.AnyAsync(a =>
+                    a.ClinicId == clinicId && a.DoctorId == null &&
+                    a.StartDate.Date <= appointmentLocal.Date && a.EndDate.Date >= appointmentLocal.Date &&
+                    a.StartTime == null);
+                if (clinicAbsent)
+                    return BadRequest(Msg(lang, "العيادة في إجازة في هذا اليوم", "Clinic is on holiday on this day"));
+
+                // 3 — دوام الطبيب
+                var doctorSchedule = await _db.DoctorSchedules
+                    .FirstOrDefaultAsync(s => s.DoctorId == newDoctorId && s.DayOfWeek == dayOfWeek && s.IsActive);
+                if (doctorSchedule == null)
+                    return BadRequest(Msg(lang, "الطبيب لا يعمل في هذا اليوم", "Doctor does not work on this day"));
+
+                // 4 — إجازة الطبيب (يوم كامل)
+                var doctorAbsent = await _db.Absences.AnyAsync(a =>
+                    a.ClinicId == clinicId && a.DoctorId == newDoctorId &&
+                    a.StartDate.Date <= appointmentLocal.Date && a.EndDate.Date >= appointmentLocal.Date &&
+                    a.StartTime == null);
+                if (doctorAbsent)
+                    return BadRequest(Msg(lang, "الطبيب في إجازة في هذا اليوم", "Doctor is on leave on this day"));
+
+                // 5 — إجازة الطبيب (فترة محددة)
+                var doctorPartialAbsent = await _db.Absences.AnyAsync(a =>
+                    a.ClinicId == clinicId && a.DoctorId == newDoctorId &&
+                    a.StartDate.Date <= appointmentLocal.Date && a.EndDate.Date >= appointmentLocal.Date &&
+                    a.StartTime != null && a.StartTime <= timeOfDay && a.EndTime >= timeOfDay);
+                if (doctorPartialAbsent)
+                    return BadRequest(Msg(lang,
+                        "الطبيب غير متاح في هذا الوقت (اجتماع أو استراحة)",
+                        "Doctor is unavailable at this time (meeting or break)"));
+
+                // 6 — الوقت ضمن دوام الطبيب؟
+                if (timeOfDay < doctorSchedule.StartTime || timeOfDay >= doctorSchedule.EndTime)
+                    return BadRequest(Msg(lang,
+                        $"الوقت خارج دوام الطبيب ({doctorSchedule.StartTime} - {doctorSchedule.EndTime})",
+                        $"Time is outside doctor's working hours ({doctorSchedule.StartTime} - {doctorSchedule.EndTime})"));
+
+                // 7 — تعارض مع مواعيد ثانية (نستثني هذا الموعد نفسه من الفحص)
+                var slotEnd = newDate.AddMinutes(doctorSchedule.SlotDuration);
+                var isConflict = await _db.Appointments.AnyAsync(a =>
+                    a.Id != appointment.Id &&
+                    a.DoctorId == newDoctorId &&
+                    !a.IsDeleted &&
+                    a.Status != "cancelled" &&
+                    a.AppointmentDate < slotEnd &&
+                    a.AppointmentDate.AddMinutes(doctorSchedule.SlotDuration) > newDate);
+
+                if (isConflict)
+                    return BadRequest(Msg(lang,
+                        "هذا الموعد محجوز مسبقاً — اختر وقتاً آخر",
+                        "This slot is already booked — please choose another time"));
+            }
 
             if (dto.AppointmentDate.HasValue) appointment.AppointmentDate = dto.AppointmentDate.Value;
             appointment.DoctorId = dto.DoctorId;
@@ -347,11 +477,41 @@ namespace ClinicSaaS.API.Controllers
         {
             if (!_clinicContext.HasPermission("appointments.delete")) return Forbid();
             var appointment = await _db.Appointments.FindAsync(id);
-            if (appointment == null || appointment.isdeleted) return NotFound();
+            if (appointment == null || appointment.IsDeleted) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
-            appointment.isdeleted = true;
+            appointment.IsDeleted = true;
             await _db.SaveChangesAsync();
             return NoContent();
+        }
+
+        // ✅ PATCH: api/appointments/{id}/update-type
+        // تصحيح "نوع الزيارة الفعلي" — يُستخدم وقت الـ Checkout لو الطبيب اكتشف إن الزيارة
+        // كانت نوع مختلف عن المحجوز أصلاً (مثلاً حُجزت "كشف" لكن تبيّن إنها "استشارة").
+        // لا يلمس أي شي ثاني بالموعد (لا تاريخ، لا طبيب، لا فحص تعارض) — تحديث بسيط ومقصود.
+        [HttpPatch("{id}/update-type")]
+        public async Task<ActionResult> UpdateVisitType(Guid id, [FromBody] UpdateVisitTypeDto dto, [FromQuery] string lang = "ar")
+        {
+            var appointment = await _db.Appointments.FindAsync(id);
+            if (appointment == null || appointment.IsDeleted) return NotFound();
+            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            if (dto.TemplateId.HasValue)
+            {
+                var template = await _db.TreatmentPlanTemplates
+                    .FirstOrDefaultAsync(t => t.Id == dto.TemplateId.Value && t.ClinicId == appointment.ClinicId);
+                if (template == null)
+                    return BadRequest(Msg(lang, "القالب غير موجود", "Template not found"));
+
+                appointment.TemplateId = dto.TemplateId;
+                appointment.Type = dto.Type ?? template.Name;
+            }
+            else if (!string.IsNullOrWhiteSpace(dto.Type))
+            {
+                appointment.Type = dto.Type;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { appointment.TemplateId, appointment.Type });
         }
 
         // POST: api/appointments/{id}/checkin
@@ -359,9 +519,10 @@ namespace ClinicSaaS.API.Controllers
         public async Task<ActionResult> CheckIn(Guid id)
         {
             var appointment = await _db.Appointments.FindAsync(id);
-            if (appointment == null || appointment.isdeleted) return NotFound();
+            if (appointment == null || appointment.IsDeleted) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
-            appointment.CheckInTime = DateTime.Now;
+            // appointment.CheckInTime = DateTime.Now;
+            appointment.CheckInTime = DateTime.UtcNow;
             appointment.Status = "confirmed";
             await _db.SaveChangesAsync();
             return Ok(new { checkInTime = appointment.CheckInTime, status = appointment.Status });
@@ -373,14 +534,32 @@ namespace ClinicSaaS.API.Controllers
         {
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == id && !a.isdeleted);
+                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
             if (appointment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
             if (appointment.CheckInTime == null)
                 return BadRequest(Msg(lang, "لم يتم تسجيل الدخول بعد", "Check-in not recorded yet"));
 
-            appointment.CheckOutTime = DateTime.Now;
+            //appointment.CheckOutTime = DateTime.Now;
+            appointment.CheckOutTime = DateTime.UtcNow;
             appointment.Status = "completed";
+
+            // ✅ حساب وتخزين حصة الطبيب (Snapshot ثابت — ما يتغيّر لو تغيّرت النسبة مستقبلاً)
+            if (appointment.DoctorId.HasValue && (appointment.Price ?? 0) > 0)
+            {
+                var hasVisitedBefore = await _db.Appointments.AnyAsync(a =>
+                    a.Id != appointment.Id
+                    && a.PatientId == appointment.PatientId
+                    && a.DoctorId == appointment.DoctorId
+                    && !a.IsDeleted
+                    && a.Status == "completed");
+
+                appointment.DoctorCommissionAmount = await ResolveDoctorCommission(
+                    appointment.DoctorId.Value,
+                    appointment.TemplateId,
+                    !hasVisitedBefore,
+                    appointment.Price!.Value);
+            }
 
             // ✅ تحقق من تأمين المريض وأنشئ مطالبة تلقائياً
             string? claimNumber = null;
@@ -437,6 +616,7 @@ namespace ClinicSaaS.API.Controllers
                 status = appointment.Status,
                 durationMinutes = (int)duration!.Value.TotalMinutes,
                 totalAmount,
+                doctorCommissionAmount = appointment.DoctorCommissionAmount,   // ✅ جديد
                 // ✅ بيانات التأمين
                 hasInsurance = insuranceAmount.HasValue,
                 companyName,
@@ -461,7 +641,7 @@ namespace ClinicSaaS.API.Controllers
 
             var currentAppointment = await _db.Appointments
                 .Where(a => a.DoctorId == doctorId && a.ClinicId == _clinicContext.ClinicId
-                    && !a.isdeleted && a.Status != "cancelled"
+                    && !a.IsDeleted && a.Status != "cancelled"
                     && a.AppointmentDate <= now.AddMinutes(30) && a.AppointmentDate >= now.AddMinutes(-30))
                 .Include(a => a.Patient)
                 .FirstOrDefaultAsync();
@@ -472,7 +652,7 @@ namespace ClinicSaaS.API.Controllers
 
             var nextAppointment = await _db.Appointments
                 .Where(a => a.DoctorId == doctorId && a.ClinicId == _clinicContext.ClinicId
-                    && !a.isdeleted && a.Status == "scheduled" && a.AppointmentDate > now)
+                    && !a.IsDeleted && a.Status == "scheduled" && a.AppointmentDate > now)
                 .OrderBy(a => a.AppointmentDate)
                 .FirstOrDefaultAsync();
 
@@ -486,6 +666,7 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // POST: api/appointments/seed-defaults/{clinicId}
+        // POST: api/appointments/seed-defaults/{clinicId}
         [HttpPost("seed-defaults/{clinicId}")]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult> SeedDefaultRoles(Guid clinicId)
@@ -493,43 +674,84 @@ namespace ClinicSaaS.API.Controllers
             var clinic = await _db.Clinics.FindAsync(clinicId);
             if (clinic == null) return NotFound("العيادة غير موجودة");
 
-            var defaultRoles = new[]
-            {
-                new { Name="ClinicAdmin",  Description="مدير العيادة — صلاحيات كاملة" },
-                new { Name="Doctor",       Description="طبيب — يرى مواعيده ومرضاه فقط" },
-                new { Name="Receptionist", Description="موظف استقبال — إدارة المرضى والمواعيد" },
-                new { Name="ClinicStaff",  Description="موظف العيادة — صلاحيات محدودة" },
-            };
+            var added = await _roleSeedingService.SeedDefaultRoles(clinicId);
 
-            var allPermissions = await _db.Permissions.ToListAsync();
-
-            foreach (var roleData in defaultRoles)
-            {
-                if (await _db.Roles.AnyAsync(r => r.Name == roleData.Name && r.ClinicId == clinicId)) continue;
-
-                var role = new Role { Id = Guid.NewGuid(), Name = roleData.Name, Description = roleData.Description, ClinicId = clinicId, IsActive = true, IsSystem = true };
-                _db.Roles.Add(role);
-                await _db.SaveChangesAsync();
-
-                foreach (var perm in GetDefaultPermissionsForRole(roleData.Name, allPermissions))
-                    _db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = perm.Id, ClinicId = null });
-
-                await _db.SaveChangesAsync();
-            }
             return Ok(new { message = "تم إنشاء الأدوار الأساسية بنجاح" });
         }
 
-        private static List<Permission> GetDefaultPermissionsForRole(string roleName, List<Permission> allPermissions)
+
+        // ═══════════════════════════════════════
+        // ✅ دوال حل السعر والحصة — الأولوية:
+        // 1) استثناء خاص بالطبيب لهذا القالب تحديداً
+        // 2) سعر/حصة القالب العام (للسعر فقط) أو الإعداد العام للطبيب (للحصة فقط)
+        // 3) fallback على دوام الطبيب الافتراضي (للسعر فقط — الحصة بدون fallback، يعني بدون نظام عمولة)
+        // ═══════════════════════════════════════
+
+        private async Task<decimal?> ResolveVisitPrice(Guid doctorId, Guid? templateId, bool isFirstVisit, DoctorSchedule doctorSchedule)
         {
-            var permMap = new Dictionary<string, string[]>
+            if (templateId.HasValue)
             {
-                ["ClinicAdmin"] = new[] { "patients.view", "patients.create", "patients.edit", "patients.delete", "doctors.view", "doctors.create", "doctors.edit", "doctors.delete", "appointments.view", "appointments.create", "appointments.edit", "appointments.delete", "schedules.view", "schedules.manage", "users.view", "users.create", "departments.manage", "settings.view", "settings.edit", "reports.view" },
-                ["Doctor"] = new[] { "patients.view", "appointments.view", "appointments.create", "appointments.edit", "schedules.view" },
-                ["Receptionist"] = new[] { "patients.view", "patients.create", "patients.edit", "appointments.view", "appointments.create", "appointments.edit", "schedules.view" },
-                ["ClinicStaff"] = new[] { "patients.view", "appointments.view", "schedules.view", "reports.view" },
-            };
-            if (!permMap.ContainsKey(roleName)) return new List<Permission>();
-            return allPermissions.Where(p => permMap[roleName].Contains(p.Name)).ToList();
+                // 1 — سعر خاص بالطبيب لهذا القالب بالذات (الأكثر تحديداً)
+                var doctorSetting = await _db.DoctorTemplateSettings
+                    .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == templateId && s.IsActive);
+
+                if (doctorSetting != null)
+                {
+                    var customPrice = isFirstVisit ? doctorSetting.FirstVisitPrice : doctorSetting.FollowUpPrice;
+                    if (customPrice.HasValue) return customPrice;
+                }
+
+                // 2 — الإعداد العام للطبيب (TemplateId = null) — سعره الشخصي الافتراضي،
+                // يطبّق على أي قالب ما له استثناء خاص بالخطوة السابقة
+                var doctorGeneralSetting = await _db.DoctorTemplateSettings
+                    .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == null && s.IsActive);
+
+                if (doctorGeneralSetting != null)
+                {
+                    var generalPrice = isFirstVisit ? doctorGeneralSetting.FirstVisitPrice : doctorGeneralSetting.FollowUpPrice;
+                    if (generalPrice.HasValue) return generalPrice;
+                }
+
+                // 3 — سعر القالب العام (لو الطبيب ما له أي سعر شخصي إطلاقاً)
+                var template = await _db.TreatmentPlanTemplates.FindAsync(templateId.Value);
+                if (template != null)
+                {
+                    var templatePrice = isFirstVisit ? template.FirstVisitPrice : template.FollowUpPrice;
+                    if (templatePrice.HasValue) return templatePrice;
+                }
+            }
+
+            // 4 — fallback: سعر دوام الطبيب الافتراضي (النظام القديم، يبقى شغّال للمواعيد بدون قالب)
+            return isFirstVisit ? doctorSchedule.FirstVisitPrice : doctorSchedule.FollowUpPrice;
+        }
+
+        private async Task<decimal?> ResolveDoctorCommission(Guid doctorId, Guid? templateId, bool isFirstVisit, decimal chargedAmount)
+        {
+            DoctorTemplateSetting? setting = null;
+
+            // 1 — استثناء حصة خاص لهذا القالب بالذات
+            if (templateId.HasValue)
+            {
+                setting = await _db.DoctorTemplateSettings
+                    .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == templateId && s.IsActive);
+            }
+
+            // 2 — وإلا، الإعداد العام لهذا الطبيب (TemplateId = null)
+            if (setting == null)
+            {
+                setting = await _db.DoctorTemplateSettings
+                    .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == null && s.IsActive);
+            }
+
+            // 3 — الطبيب ما عنده نظام عمولة أصلاً — طبيعي وسليم، ما فيه حصة تُحسب
+            if (setting == null) return null;
+
+            var rate = isFirstVisit ? setting.FirstVisitCommissionRate : setting.FollowUpCommissionRate;
+            if (!rate.HasValue) return null;
+
+            return setting.CommissionType == "fixed"
+                ? rate.Value
+                : Math.Round(chargedAmount * rate.Value / 100, 3);
         }
 
         private static AppointmentResponseDto ToResponse(Appointment a) => new AppointmentResponseDto
@@ -550,6 +772,13 @@ namespace ClinicSaaS.API.Controllers
             CreatedAt = a.CreatedAt,
             CheckInTime = a.CheckInTime,
             CheckOutTime = a.CheckOutTime,
+            DoctorCommissionAmount = a.DoctorCommissionAmount,   // ✅ جديد
         };
+    }
+
+    public class UpdateVisitTypeDto
+    {
+        public Guid? TemplateId { get; set; }
+        public string? Type { get; set; }
     }
 }

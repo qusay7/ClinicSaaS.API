@@ -30,9 +30,9 @@ namespace ClinicSaaS.API.Controllers
             {
                 var totalClinics = await _db.Clinics.CountAsync(c => c.IsActive);
                 var totalUsers = await _db.Users.CountAsync(u => u.IsActive);
-                var totalPatients = await _db.Patients.CountAsync(p => !p.isdeleted);
-                var totalDoctors = await _db.Doctors.CountAsync(d => !d.isdeleted);
-                var totalAppointments = await _db.Appointments.CountAsync(a => !a.isdeleted);
+                var totalPatients = await _db.Patients.CountAsync(p => !p.IsDeleted);
+                var totalDoctors = await _db.Doctors.CountAsync(d => !d.IsDeleted);
+                var totalAppointments = await _db.Appointments.CountAsync(a => !a.IsDeleted);
                 var activeSubscriptions = await _db.Subscriptions.CountAsync(s => s.IsActive);
 
                 return Ok(new
@@ -56,24 +56,24 @@ namespace ClinicSaaS.API.Controllers
 
             // إحصائيات العيادة
             var patients = await _db.Patients
-                .CountAsync(p => p.ClinicId == clinicId && !p.isdeleted);
+                .CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted);
 
             var doctors = await _db.Doctors
-                .CountAsync(d => d.ClinicId == clinicId && !d.isdeleted && d.IsActive);
+                .CountAsync(d => d.ClinicId == clinicId && !d.IsDeleted && d.IsActive);
 
             var appointments = await _db.Appointments
-                .CountAsync(a => a.ClinicId == clinicId && !a.isdeleted);
+                .CountAsync(a => a.ClinicId == clinicId && !a.IsDeleted);
 
             // مواعيد اليوم
             var todayAppointments = await _db.Appointments
                 .CountAsync(a => a.ClinicId == clinicId
-                    && !a.isdeleted
+                    && !a.IsDeleted
                     && a.AppointmentDate.Date == today);
 
             // مواعيد قادمة
             var upcomingAppointments = await _db.Appointments
                 .CountAsync(a => a.ClinicId == clinicId
-                    && !a.isdeleted
+                    && !a.IsDeleted
                     && a.AppointmentDate > DateTime.UtcNow
                     && a.Status == "scheduled");
 

@@ -20,5 +20,6 @@
         public string? Description { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string? TimeZone { get; set; }
     }
 }
