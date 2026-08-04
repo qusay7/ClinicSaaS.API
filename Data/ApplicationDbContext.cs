@@ -72,6 +72,8 @@ namespace ClinicSaaS.API.Data
         public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
         public DbSet<TreatmentSession> TreatmentSessions { get; set; }
         public DbSet<DoctorTemplateSetting> DoctorTemplateSettings { get; set; }   // ✅ جديد
+        public DbSet<Settlement> Settlements { get; set; }   // ✅ جديد — محرك التسوية الموحّد
+        public DbSet<Attachment> Attachments { get; set; }   // ✅ جديد — مرفقات المريض
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -297,6 +299,38 @@ namespace ClinicSaaS.API.Data
             });
             modelBuilder.Entity<DoctorTemplateSetting>().HasQueryFilter(x => !x.IsDeleted);
 
+            // ✅ محرك التسوية الموحّد
+            modelBuilder.Entity<Settlement>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.TotalAmount).HasPrecision(10, 3);
+                e.Property(x => x.AmountPaid).HasPrecision(10, 3);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Doctor).WithMany().HasForeignKey(x => x.DoctorId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.InsuranceCompany).WithMany().HasForeignKey(x => x.InsuranceCompanyId).OnDelete(DeleteBehavior.Restrict);
+            });
+            modelBuilder.Entity<Settlement>().HasQueryFilter(x => !x.IsDeleted);
+
+            // ✅ مرفقات المريض
+            modelBuilder.Entity<Attachment>(e => {
+                e.HasKey(x => x.Id);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.NoAction);
+            });
+            modelBuilder.Entity<Attachment>().HasQueryFilter(x => !x.IsDeleted);
+
+            modelBuilder.Entity<Appointment>()
+                .HasOne(a => a.CommissionSettlement)
+                .WithMany()
+                .HasForeignKey(a => a.CommissionSettlementId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<InsuranceClaim>()
+                .HasOne(c => c.Settlement)
+                .WithMany()
+                .HasForeignKey(c => c.SettlementId)
+                .OnDelete(DeleteBehavior.NoAction);
+
             // Soft Delete
             modelBuilder.Entity<TreatmentPlanTemplate>().HasQueryFilter(x => !x.IsDeleted);
             modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(x => !x.IsDeleted);
@@ -445,6 +479,10 @@ namespace ClinicSaaS.API.Data
         // ✅ مبلغ حصة الطبيب الفعلي، يُحسب ويُخزّن مرة واحدة وقت الـ Checkout
         // (Snapshot ثابت — ما يتأثر لو تغيّرت نسبة الطبيب مستقبلاً)
         public decimal? DoctorCommissionAmount { get; set; }
+
+        // ✅ جديد — ربط حصة الطبيب بدفعة تسوية جماعية (لو اتسوّت مع الطبيب)
+        public Guid? CommissionSettlementId { get; set; }
+        public Settlement? CommissionSettlement { get; set; }
 
         [Timestamp]
         public byte[] RowVersion { get; set; } = default!;
@@ -753,6 +791,35 @@ namespace ClinicSaaS.API.Data
     }
 
     // جدول ملاحظات الزيارة (Visit Notes)
+    // ══════════════════════════════════════
+    // مرفقات المريض — صور أشعة، تحاليل، أي ملف طبي مرتبط بالمريض (اختياريًا بزيارة معينة)
+    // ══════════════════════════════════════
+    public class Attachment : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+        public Guid? AppointmentId { get; set; }   // اختياري — مرتبط بزيارة معينة
+
+        public string FileName { get; set; } = "";     // الاسم الأصلي كما رفعه المستخدم
+        public string FilePath { get; set; } = "";     // المسار النسبي داخل مجلد uploads
+        public string FileType { get; set; } = "";     // Content-Type (image/jpeg, application/pdf...)
+        public long FileSize { get; set; }               // بالبايت
+        public string? Category { get; set; }             // "xray" / "lab" / "other" — نوع المرفق
+        public string? Notes { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+
+        public Clinic? Clinic { get; set; }
+        public Patient? Patient { get; set; }
+        public Appointment? Appointment { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
     public class VisitNote : IAuditable
     {
         public Guid Id { get; set; }
@@ -879,6 +946,39 @@ namespace ClinicSaaS.API.Data
     // ══════════════════════════════════════
     // مطالبة التأمين
     // ══════════════════════════════════════
+    // ══════════════════════════════════════
+    // محرك التسوية الموحّد — يخدم مخالصة الطبيب ومخالصة شركة التأمين بنفس الجدول
+    // ══════════════════════════════════════
+    public class Settlement : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public string Type { get; set; } = "";   // "doctor" / "insurance"
+
+        public Guid? DoctorId { get; set; }
+        public Doctor? Doctor { get; set; }
+
+        public Guid? InsuranceCompanyId { get; set; }
+        public InsuranceCompany? InsuranceCompany { get; set; }
+
+        public DateTime PeriodStart { get; set; }
+        public DateTime PeriodEnd { get; set; }
+        public decimal TotalAmount { get; set; }
+        // ✅ جديد — يسمح بتسوية جزئية (مو دايماً المبلغ كامل)
+        public decimal AmountPaid { get; set; }
+        public string Status { get; set; } = "pending";   // pending / partial / paid
+        public DateTime? PaidAt { get; set; }
+        public string? PaymentMethod { get; set; }
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+
+        public Clinic? Clinic { get; set; }
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
     public class InsuranceClaim : IAuditable
     {
         public Guid Id { get; set; }
@@ -903,6 +1003,11 @@ namespace ClinicSaaS.API.Data
         public bool IsDeleted { get; set; } = false;
         public Patient? Patient { get; set; }
         public PatientInsurance? PatientInsurance { get; set; }
+
+        // ✅ جديد — ربط المطالبة بدفعة تسوية جماعية مع شركة التأمين (لو اتسوّت)
+        public Guid? SettlementId { get; set; }
+        public Settlement? Settlement { get; set; }
+
         [Timestamp]
         public byte[] RowVersion { get; set; } = default!;
         public Guid? CreatedBy { get; set; }

@@ -11,6 +11,7 @@
         public DateTime AppointmentDate { get; set; }
         public Guid? DoctorId { get; set; }
         public string? DoctorName { get; set; }
+        public Guid? TemplateId { get; set; }   // ✅ جديد — كان ناقصاً، سبب اختفاء نوع الزيارة بكل الشاشات
         public string? Type { get; set; }
         public decimal? Price { get; set; }
         public string Status { get; set; } = default!;

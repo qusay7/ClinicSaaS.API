@@ -21,7 +21,7 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // GET: api/visitnotes/patient/{patientId}
-        // جلب كل زيارات مريض معين
+        // جلب كل زيارات مريض معين — السجل المرضي الكامل (يشمل نوع الزيارة والمرفقات)
         [HttpGet("patient/{patientId}")]
         public async Task<ActionResult> GetByPatient(Guid patientId)
         {
@@ -37,9 +37,16 @@ namespace ClinicSaaS.API.Controllers
                 .OrderByDescending(v => v.CreatedAt)
                 .ToListAsync();
 
+            // ✅ نجيب كل مرفقات المريض بضربة وحدة، ونربطها بالزيارة المناسبة حسب AppointmentId
+            var attachments = await _db.Attachments
+                .Where(a => a.PatientId == patientId && a.ClinicId == _clinicContext.ClinicId)
+                .Select(a => new { a.Id, a.FileName, a.Category, a.AppointmentId, isImage = a.FileType.StartsWith("image/") })
+                .ToListAsync();
+
             return Ok(notes.Select(v => new
             {
                 v.Id,
+                appointmentId = v.AppointmentId,
                 v.Diagnosis,
                 v.Prescription,
                 v.Tests,
@@ -49,7 +56,14 @@ namespace ClinicSaaS.API.Controllers
                 v.CreatedAt,
                 doctorName = v.Doctor?.FullName,
                 appointmentDate = v.Appointment?.AppointmentDate,
+                visitType = v.Appointment?.Type,
                 source = v.AppointmentId != null ? "appointment" : "queue",
+                // ✅ الشرط جوا Where بدل ternary بنوعين مختلفين — يرجّع قائمة فاضية تلقائياً
+                // لو الزيارة بدون AppointmentId، بدون تعارض أنواع بـ C#
+                attachments = attachments
+                    .Where(a => v.AppointmentId != null && a.AppointmentId == v.AppointmentId)
+                    .Select(a => new { a.Id, a.FileName, a.Category, a.isImage })
+                    .ToList(),
             }));
         }
 
@@ -83,73 +97,73 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
-		// POST: api/visitnotes
-		// إضافة ملاحظة زيارة
-		// POST: api/visitnotes
-		// إضافة ملاحظة زيارة
-		[HttpPost]
-		public async Task<ActionResult> Create([FromBody] CreateVisitNoteDto dto)
-		{
-			if (!_clinicContext.HasPermission("visitnotes.create")) return Forbid();
-			if (_clinicContext.ClinicId == null) return Unauthorized();
+        // POST: api/visitnotes
+        // إضافة ملاحظة زيارة
+        // POST: api/visitnotes
+        // إضافة ملاحظة زيارة
+        [HttpPost]
+        public async Task<ActionResult> Create([FromBody] CreateVisitNoteDto dto)
+        {
+            if (!_clinicContext.HasPermission("visitnotes.create")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
 
-			// ✅ تحقق أن المريض ينتمي لنفس العيادة
-			var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.IsDeleted);
-			if (patient == null) return BadRequest("المريض غير موجود");
-			if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
+            // ✅ تحقق أن المريض ينتمي لنفس العيادة
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.IsDeleted);
+            if (patient == null) return BadRequest("المريض غير موجود");
+            if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-			var note = new VisitNote
-			{
-				Id = Guid.NewGuid(),
-				ClinicId = _clinicContext.ClinicId.Value,
-				PatientId = dto.PatientId,
-				AppointmentId = dto.AppointmentId,
-				QueueEntryId = dto.QueueEntryId,
-				DoctorId = dto.DoctorId,
-				Diagnosis = dto.Diagnosis,
-				Prescription = dto.Prescription,
-				Tests = dto.Tests,
-				Notes = dto.Notes,
-				NextVisitDate = dto.NextVisitDate,
-				Cost = dto.Cost,
-				CreatedAt = DateTime.UtcNow,
-			};
+            var note = new VisitNote
+            {
+                Id = Guid.NewGuid(),
+                ClinicId = _clinicContext.ClinicId.Value,
+                PatientId = dto.PatientId,
+                AppointmentId = dto.AppointmentId,
+                QueueEntryId = dto.QueueEntryId,
+                DoctorId = dto.DoctorId,
+                Diagnosis = dto.Diagnosis,
+                Prescription = dto.Prescription,
+                Tests = dto.Tests,
+                Notes = dto.Notes,
+                NextVisitDate = dto.NextVisitDate,
+                Cost = dto.Cost,
+                CreatedAt = DateTime.UtcNow,
+            };
 
-			_db.VisitNotes.Add(note);
-			await _db.SaveChangesAsync();
+            _db.VisitNotes.Add(note);
+            await _db.SaveChangesAsync();
 
-			return Ok(new { note.Id, message = "تم حفظ ملاحظات الزيارة" });
-		}
+            return Ok(new { note.Id, message = "تم حفظ ملاحظات الزيارة" });
+        }
 
-		// PUT: api/visitnotes/{id}
-		// تعديل ملاحظة زيارة
-		// PUT: api/visitnotes/{id}
-		// تعديل ملاحظة زيارة
-		[HttpPut("{id}")]
-		public async Task<ActionResult> Update(Guid id, [FromBody] CreateVisitNoteDto dto)
-		{
-			if (!_clinicContext.HasPermission("visitnotes.edit")) return Forbid();
-			if (_clinicContext.ClinicId == null) return Unauthorized();
+        // PUT: api/visitnotes/{id}
+        // تعديل ملاحظة زيارة
+        // PUT: api/visitnotes/{id}
+        // تعديل ملاحظة زيارة
+        [HttpPut("{id}")]
+        public async Task<ActionResult> Update(Guid id, [FromBody] CreateVisitNoteDto dto)
+        {
+            if (!_clinicContext.HasPermission("visitnotes.edit")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
 
-			var note = await _db.VisitNotes
-				.FirstOrDefaultAsync(v => v.Id == id
-					&& v.ClinicId == _clinicContext.ClinicId
-					&& !v.IsDeleted);
+            var note = await _db.VisitNotes
+                .FirstOrDefaultAsync(v => v.Id == id
+                    && v.ClinicId == _clinicContext.ClinicId
+                    && !v.IsDeleted);
 
-			if (note == null) return NotFound();
+            if (note == null) return NotFound();
 
-			note.Diagnosis = dto.Diagnosis;
-			note.Prescription = dto.Prescription;
-			note.Tests = dto.Tests;
-			note.Notes = dto.Notes;
-			note.NextVisitDate = dto.NextVisitDate;
-			note.Cost = dto.Cost;
+            note.Diagnosis = dto.Diagnosis;
+            note.Prescription = dto.Prescription;
+            note.Tests = dto.Tests;
+            note.Notes = dto.Notes;
+            note.NextVisitDate = dto.NextVisitDate;
+            note.Cost = dto.Cost;
 
-			await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync();
 
-			return Ok(new { message = "تم تحديث ملاحظات الزيارة" });
-		}
-	}
+            return Ok(new { message = "تم تحديث ملاحظات الزيارة" });
+        }
+    }
 
     public class CreateVisitNoteDto
     {

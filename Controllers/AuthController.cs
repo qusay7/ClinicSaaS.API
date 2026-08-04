@@ -238,6 +238,7 @@ namespace ClinicSaaS.API.Controllers
                 new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },
                 new { Name="visitnotes.edit",       Module="visitnotes",    DisplayName="تعديل ملاحظة زيارة",     Group="ملاحظات الزيارة" },
                 new { Name="treatmenttemplates.manage", Module="treatmenttemplates", DisplayName="إدارة قوالب الزيارة", Group="قوالب الزيارة" },
+                new { Name="settlements.manage", Module="settlements", DisplayName="إدارة التسويات المالية", Group="التسويات المالية" },
              };
 
             int added = 0;
