@@ -14,11 +14,26 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly IPdfExportService _pdfExport;
+        private readonly IExcelExportService _excelExport;
+        private readonly IWebHostEnvironment _env;
 
-        public SchedulesController(ApplicationDbContext db, IClinicContext clinicContext)
+        public SchedulesController(ApplicationDbContext db, IClinicContext clinicContext,
+            IPdfExportService pdfExport, IExcelExportService excelExport, IWebHostEnvironment env)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _pdfExport = pdfExport;
+            _excelExport = excelExport;
+            _env = env;
+        }
+
+        private string? ResolveLogoPath(string? logoUrl)
+        {
+            if (string.IsNullOrEmpty(logoUrl)) return null;
+            var cleanPath = logoUrl.Split('?')[0].TrimStart('/');
+            var fullPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), cleanPath.Replace("logos/", "logos" + Path.DirectorySeparatorChar));
+            return System.IO.File.Exists(fullPath) ? fullPath : null;
         }
 
         private static string Msg(string lang, string ar, string en)
@@ -55,6 +70,58 @@ namespace ClinicSaaS.API.Controllers
                 .ToListAsync();
 
             return Ok(schedules.Select(ToClinicResponse).ToList());
+        }
+
+        // ✅ GET: api/schedules/clinic/export?format=pdf|excel
+        [HttpGet("clinic/export")]
+        public async Task<ActionResult> ExportClinicSchedule([FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            if (_clinicContext.ClinicId == null && !_clinicContext.IsSuperAdmin) return Unauthorized();
+            var isRtl = lang == "ar";
+            var clinicId = _clinicContext.ClinicId!.Value;
+
+            var schedules = await _db.ClinicSchedules
+                .Where(s => s.ClinicId == clinicId)
+                .OrderBy(s => s.DayOfWeek)
+                .ToListAsync();
+
+            var rows = schedules.Select(s => new List<string> {
+                isRtl ? GetDayName(s.DayOfWeek) : s.DayOfWeek.ToString(),
+                s.OpenTime.ToString("HH:mm"), s.CloseTime.ToString("HH:mm"),
+                s.IsActive ? (isRtl ? "نشط" : "Active") : (isRtl ? "غير نشط" : "Inactive"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "اليوم", "وقت الفتح", "وقت الإغلاق", "الحالة" }
+                : new List<string> { "Day", "Open", "Close", "Status" };
+
+            var clinic = await _db.Clinics.FindAsync(clinicId);
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "دوام العيادة" : "Clinic Schedule",
+                    Title = isRtl ? "جدول دوام العيادة" : "Clinic Schedule",
+                    Columns = columns,
+                    Rows = rows,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "clinic-schedule.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "جدول دوام العيادة" : "Clinic Schedule",
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                });
+                return File(bytes, "application/pdf", "clinic-schedule.pdf");
+            }
         }
 
         [HttpPost("clinic")]
@@ -169,6 +236,61 @@ namespace ClinicSaaS.API.Controllers
             return Ok(schedules.Select(ToDoctorResponse).ToList());
         }
 
+        // ✅ GET: api/schedules/doctor/{doctorId}/export?format=pdf|excel
+        [HttpGet("doctor/{doctorId}/export")]
+        public async Task<ActionResult> ExportDoctorSchedule(Guid doctorId, [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            var doctor = await _db.Doctors.FindAsync(doctorId);
+            if (doctor == null || doctor.IsDeleted) return NotFound();
+            if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            var isRtl = lang == "ar";
+            var schedules = await _db.DoctorSchedules
+                .Where(s => s.DoctorId == doctorId)
+                .OrderBy(s => s.DayOfWeek)
+                .ToListAsync();
+
+            var rows = schedules.Select(s => new List<string> {
+                isRtl ? GetDayName(s.DayOfWeek) : s.DayOfWeek.ToString(),
+                s.StartTime.ToString("HH:mm"), s.EndTime.ToString("HH:mm"),
+                $"{s.SlotDuration} {(isRtl ? "دقيقة" : "min")}",
+                s.IsActive ? (isRtl ? "نشط" : "Active") : (isRtl ? "غير نشط" : "Inactive"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "اليوم", "من", "إلى", "مدة الموعد", "الحالة" }
+                : new List<string> { "Day", "From", "To", "Slot Duration", "Status" };
+
+            var clinic = await _db.Clinics.FindAsync(doctor.ClinicId);
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "دوام الطبيب" : "Doctor Schedule",
+                    Title = isRtl ? $"جدول دوام — {doctor.FullName}" : $"Schedule — {doctor.FullName}",
+                    Columns = columns,
+                    Rows = rows,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "doctor-schedule.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "جدول دوام الطبيب" : "Doctor Schedule",
+                    Subtitle = doctor.FullName,
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                });
+                return File(bytes, "application/pdf", "doctor-schedule.pdf");
+            }
+        }
+
         [HttpPost("doctor")]
         public async Task<ActionResult> AddDoctorDay(
             [FromBody] CreateDoctorScheduleDto dto,
@@ -205,6 +327,7 @@ namespace ClinicSaaS.API.Controllers
 
             var schedule = new DoctorSchedule
             {
+
                 Id = Guid.NewGuid(),
                 DoctorId = dto.DoctorId,
                 DayOfWeek = dto.DayOfWeek,
@@ -442,6 +565,7 @@ namespace ClinicSaaS.API.Controllers
     // ✅ بديل واضح ونوعي بدل الـ anonymous object + Reflection
     public class SlotDto
     {
+
         public string Time { get; set; } = default!;
         public string DateTime { get; set; } = default!;
         public bool IsBooked { get; set; }

@@ -4,6 +4,7 @@ using ClinicSaaS.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicSaaS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260820140503_AddCustomRemindersToAppointment")]
+    partial class AddCustomRemindersToAppointment
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -83,17 +86,8 @@ namespace ClinicSaaS.API.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<bool>("AppointmentCancelledNotificationSent")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("AppointmentCreatedNotificationSent")
-                        .HasColumnType("bit");
-
                     b.Property<DateTime>("AppointmentDate")
                         .HasColumnType("datetime2");
-
-                    b.Property<bool>("AppointmentUpdatedNotificationSent")
-                        .HasColumnType("bit");
 
                     b.Property<DateTime?>("CheckInTime")
                         .HasColumnType("datetime2");

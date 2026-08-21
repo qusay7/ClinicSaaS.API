@@ -19,11 +19,28 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly IPdfExportService _pdfExport;
+        private readonly IExcelExportService _excelExport;
+        private readonly IWebHostEnvironment _env;
 
-        public SettlementsController(ApplicationDbContext db, IClinicContext clinicContext)
+        public SettlementsController(ApplicationDbContext db, IClinicContext clinicContext,
+            IPdfExportService pdfExport, IExcelExportService excelExport, IWebHostEnvironment env)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _pdfExport = pdfExport;
+            _excelExport = excelExport;
+            _env = env;
+        }
+
+        // ✅ يحوّل رابط الشعار النسبي المخزّن (/logos/xxx.png?v=...) لمسار فعلي على القرص،
+        // عشان QuestPDF يقدر يضمّنه بالـ PDF مباشرة
+        private string? ResolveLogoPath(string? logoUrl)
+        {
+            if (string.IsNullOrEmpty(logoUrl)) return null;
+            var cleanPath = logoUrl.Split('?')[0].TrimStart('/');
+            var fullPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), cleanPath.Replace("logos/", "logos" + Path.DirectorySeparatorChar));
+            return System.IO.File.Exists(fullPath) ? fullPath : null;
         }
 
         private static string Msg(string lang, string ar, string en) => lang == "ar" ? ar : en;
@@ -100,6 +117,93 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
+        // ✅ GET: api/settlements/patients-dues/export?format=pdf|excel
+        [HttpGet("patients-dues/export")]
+        public async Task<ActionResult> ExportPatientsDues([FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+            var isRtl = lang == "ar";
+
+            var partialDuesEntities = await _db.PaymentDetails
+                .Include(p => p.Patient)
+                .Where(p => p.ClinicId == _clinicContext.ClinicId && p.AmountPaid < p.PatientAmount)
+                .ToListAsync();
+
+            var appointmentIdsWithPayment = await _db.PaymentDetails
+                .Where(p => p.ClinicId == _clinicContext.ClinicId)
+                .Select(p => p.AppointmentId)
+                .ToListAsync();
+
+            var unregisteredEntities = await _db.Appointments
+                .Include(a => a.Patient)
+                .Where(a => a.ClinicId == _clinicContext.ClinicId
+                    && !a.IsDeleted && a.Status == "completed"
+                    && a.Price != null && a.Price > 0
+                    && !appointmentIdsWithPayment.Contains(a.Id))
+                .ToListAsync();
+
+            var rows = new List<List<string>>();
+            decimal totalBalance = 0;
+
+            foreach (var p in partialDuesEntities.OrderByDescending(p => p.PatientAmount - p.AmountPaid))
+            {
+                var balance = p.PatientAmount - p.AmountPaid;
+                totalBalance += balance;
+                rows.Add(new List<string> {
+                    p.Patient?.FullName ?? "—", p.TotalAmount.ToString("F2"),
+                    p.AmountPaid.ToString("F2"), balance.ToString("F2"),
+                    p.CreatedAt.ToString("yyyy-MM-dd"),
+                });
+            }
+            foreach (var a in unregisteredEntities)
+            {
+                totalBalance += a.Price!.Value;
+                rows.Add(new List<string> {
+                    a.Patient?.FullName ?? "—", a.Price.Value.ToString("F2"),
+                    "0.00", a.Price.Value.ToString("F2"),
+                    (a.CheckOutTime ?? a.AppointmentDate).ToString("yyyy-MM-dd"),
+                });
+            }
+
+            var columns = isRtl
+                ? new List<string> { "المريض", "الإجمالي", "المدفوع", "المتبقي", "التاريخ" }
+                : new List<string> { "Patient", "Total", "Paid", "Balance", "Date" };
+
+            var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value);
+            var summary = new List<(string, string)> {
+                (isRtl ? "إجمالي المستحق" : "Total Due", totalBalance.ToString("F2")),
+                (isRtl ? "عدد البنود" : "Items Count", rows.Count.ToString()),
+            };
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "ذمم المرضى" : "Patient Dues",
+                    Title = isRtl ? "كشف ذمم المرضى" : "Patient Dues Report",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "patients-dues.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "كشف ذمم المرضى" : "Patient Dues Report",
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                });
+                return File(bytes, "application/pdf", "patients-dues.pdf");
+            }
+        }
+
         // ═══════════════════════════════════════
         // 2) مخالصة الطبيب — المستحقات غير المُسوّاة بعد
         // GET: api/settlements/doctor/{doctorId}/pending?from=&to=
@@ -139,6 +243,70 @@ namespace ClinicSaaS.API.Controllers
                 count = appointments.Count,
                 items = appointments,
             });
+        }
+
+        // ✅ GET: api/settlements/doctor/{doctorId}/pending/export?format=pdf|excel&from=&to=
+        [HttpGet("doctor/{doctorId}/pending/export")]
+        public async Task<ActionResult> ExportDoctorPending(Guid doctorId, [FromQuery] DateTime? from, [FromQuery] DateTime? to,
+            [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+            var isRtl = lang == "ar";
+
+            var query = _db.Appointments.Include(a => a.Patient).Include(a => a.Doctor)
+                .Where(a => a.ClinicId == _clinicContext.ClinicId && a.DoctorId == doctorId
+                    && !a.IsDeleted && a.DoctorCommissionAmount != null && a.CommissionSettlementId == null);
+            if (from.HasValue) query = query.Where(a => a.AppointmentDate >= from.Value);
+            if (to.HasValue) query = query.Where(a => a.AppointmentDate < to.Value.AddDays(1));
+
+            var appointments = await query.OrderBy(a => a.AppointmentDate).ToListAsync();
+            var doctorName = appointments.FirstOrDefault()?.Doctor?.FullName
+                ?? (await _db.Doctors.FindAsync(doctorId))?.FullName ?? "";
+
+            var rows = appointments.Select(a => new List<string> {
+                a.AppointmentDate.ToString("yyyy-MM-dd"), a.Patient?.FullName ?? "—",
+                a.Type ?? "—", (a.DoctorCommissionAmount ?? 0).ToString("F2"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "التاريخ", "المريض", "نوع الزيارة", "الحصة" }
+                : new List<string> { "Date", "Patient", "Visit Type", "Commission" };
+
+            var total = appointments.Sum(a => a.DoctorCommissionAmount ?? 0);
+            var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value);
+            var summary = new List<(string, string)> {
+                (isRtl ? "الطبيب" : "Doctor", doctorName),
+                (isRtl ? "إجمالي المستحق" : "Total Due", total.ToString("F2")),
+            };
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "مخالصة الطبيب" : "Doctor Settlement",
+                    Title = isRtl ? $"مخالصة الطبيب — {doctorName}" : $"Doctor Settlement — {doctorName}",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "doctor-settlement.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "مخالصة الطبيب" : "Doctor Settlement",
+                    Subtitle = doctorName,
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                });
+                return File(bytes, "application/pdf", "doctor-settlement.pdf");
+            }
         }
 
         // ═══════════════════════════════════════
@@ -267,6 +435,69 @@ namespace ClinicSaaS.API.Controllers
                 count = claims.Count,
                 items = claims,
             });
+        }
+
+        // ✅ GET: api/settlements/insurance/{companyId}/claims/export?status=&format=pdf|excel
+        [HttpGet("insurance/{companyId}/claims/export")]
+        public async Task<ActionResult> ExportInsuranceClaims(Guid companyId, [FromQuery] string? status,
+            [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+            var isRtl = lang == "ar";
+
+            var query = _db.InsuranceClaims.Include(c => c.Patient).Include(c => c.PatientInsurance)
+                .Where(c => c.ClinicId == _clinicContext.ClinicId && !c.IsDeleted
+                    && c.PatientInsurance != null && c.PatientInsurance.InsuranceCompanyId == companyId);
+            if (!string.IsNullOrEmpty(status)) query = query.Where(c => c.Status == status);
+            if (from.HasValue) query = query.Where(c => c.ServiceDate >= from.Value);
+            if (to.HasValue) query = query.Where(c => c.ServiceDate < to.Value.AddDays(1));
+
+            var claims = await query.OrderBy(c => c.ServiceDate).ToListAsync();
+            var companyName = (await _db.InsuranceCompanies.FindAsync(companyId))?.Name ?? "";
+
+            var rows = claims.Select(c => new List<string> {
+                c.ServiceDate.ToString("yyyy-MM-dd"), c.ClaimNumber ?? "—",
+                c.Patient?.FullName ?? "—", c.InsuranceAmount.ToString("F2"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "التاريخ", "رقم المطالبة", "المريض", "مبلغ التأمين" }
+                : new List<string> { "Date", "Claim #", "Patient", "Insurance Amount" };
+
+            var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value);
+            var summary = new List<(string, string)> {
+                (isRtl ? "شركة التأمين" : "Insurance Company", companyName),
+                (isRtl ? "الإجمالي" : "Total", claims.Sum(c => c.InsuranceAmount).ToString("F2")),
+            };
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "مخالصة التأمين" : "Insurance Settlement",
+                    Title = isRtl ? $"مخالصة التأمين — {companyName}" : $"Insurance Settlement — {companyName}",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "insurance-settlement.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "مخالصة التأمين" : "Insurance Settlement",
+                    Subtitle = companyName,
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                });
+                return File(bytes, "application/pdf", "insurance-settlement.pdf");
+            }
         }
 
         // ✅ إرسال دفعة مطالبات جماعياً لشركة التأمين — يحوّل كل "المعلّقة" بالفترة لـ"مُرسلة" بضغطة وحدة
@@ -472,6 +703,67 @@ namespace ClinicSaaS.API.Controllers
                 .ToListAsync();
 
             return Ok(settlements);
+        }
+
+        // ✅ GET: api/settlements/export?type=&format=pdf|excel
+        [HttpGet("export")]
+        public async Task<ActionResult> ExportHistory([FromQuery] string? type, [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+            var isRtl = lang == "ar";
+
+            var query = _db.Settlements.Include(s => s.Doctor).Include(s => s.InsuranceCompany)
+                .Where(s => s.ClinicId == _clinicContext.ClinicId);
+            if (!string.IsNullOrEmpty(type)) query = query.Where(s => s.Type == type);
+
+            var settlements = await query.OrderByDescending(s => s.CreatedAt).ToListAsync();
+
+            var rows = settlements.Select(s => new List<string> {
+                s.Type == "doctor" ? (isRtl ? "طبيب" : "Doctor") : (isRtl ? "تأمين" : "Insurance"),
+                s.Doctor?.FullName ?? s.InsuranceCompany?.Name ?? "—",
+                $"{s.PeriodStart:yyyy-MM-dd} — {s.PeriodEnd:yyyy-MM-dd}",
+                s.TotalAmount.ToString("F2"), s.AmountPaid.ToString("F2"),
+                s.Status == "paid" ? (isRtl ? "مدفوعة" : "Paid") : (isRtl ? "جزئية" : "Partial"),
+                s.CreatedAt.ToString("yyyy-MM-dd"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "النوع", "الطرف", "الفترة", "الإجمالي", "المدفوع", "الحالة", "التاريخ" }
+                : new List<string> { "Type", "Party", "Period", "Total", "Paid", "Status", "Date" };
+
+            var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value);
+            var summary = new List<(string, string)> {
+                (isRtl ? "إجمالي المدفوع" : "Total Paid", settlements.Sum(s => s.AmountPaid).ToString("F2")),
+                (isRtl ? "عدد التسويات" : "Settlements Count", settlements.Count.ToString()),
+            };
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "سجل التسويات" : "Settlement History",
+                    Title = isRtl ? "سجل التسويات المالية" : "Settlement History",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "settlement-history.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "سجل التسويات المالية" : "Settlement History",
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                });
+                return File(bytes, "application/pdf", "settlement-history.pdf");
+            }
         }
     }
 

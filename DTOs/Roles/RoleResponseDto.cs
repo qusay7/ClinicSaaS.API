@@ -7,6 +7,7 @@
         public string? Description { get; set; }
         public bool IsActive { get; set; }
         public Guid? ClinicId { get; set; }
+
         public List<PermissionDto> Permissions { get; set; } = new();
     }
 

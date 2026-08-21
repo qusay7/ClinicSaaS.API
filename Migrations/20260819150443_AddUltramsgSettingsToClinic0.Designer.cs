@@ -4,6 +4,7 @@ using ClinicSaaS.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicSaaS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260819150443_AddUltramsgSettingsToClinic0")]
+    partial class AddUltramsgSettingsToClinic0
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -83,17 +86,8 @@ namespace ClinicSaaS.API.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<bool>("AppointmentCancelledNotificationSent")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("AppointmentCreatedNotificationSent")
-                        .HasColumnType("bit");
-
                     b.Property<DateTime>("AppointmentDate")
                         .HasColumnType("datetime2");
-
-                    b.Property<bool>("AppointmentUpdatedNotificationSent")
-                        .HasColumnType("bit");
 
                     b.Property<DateTime?>("CheckInTime")
                         .HasColumnType("datetime2");
@@ -112,9 +106,6 @@ namespace ClinicSaaS.API.Migrations
 
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("CustomReminders")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal?>("DoctorCommissionAmount")
                         .HasPrecision(10, 3)
@@ -783,7 +774,7 @@ namespace ClinicSaaS.API.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("AppointmentId")
+                    b.Property<Guid>("AppointmentId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Channel")
@@ -1264,7 +1255,7 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("UserId")
+                    b.Property<Guid>("UserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
@@ -2176,7 +2167,9 @@ namespace ClinicSaaS.API.Migrations
                 {
                     b.HasOne("ClinicSaaS.API.Data.Appointment", "Appointment")
                         .WithMany()
-                        .HasForeignKey("AppointmentId");
+                        .HasForeignKey("AppointmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Appointment");
                 });
@@ -2275,7 +2268,9 @@ namespace ClinicSaaS.API.Migrations
                 {
                     b.HasOne("ClinicSaaS.API.Data.User", "User")
                         .WithMany("RefreshTokens")
-                        .HasForeignKey("UserId");
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });

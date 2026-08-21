@@ -60,6 +60,8 @@ namespace ClinicSaaS.API.Controllers
 
             var doctors = await _db.Doctors
                 .CountAsync(d => d.ClinicId == clinicId && !d.IsDeleted && d.IsActive);
+            var staff = await _db.Staff
+                .CountAsync(s => s.ClinicId == clinicId && !s.IsDeleted && s.IsActive);
 
             var appointments = await _db.Appointments
                 .CountAsync(a => a.ClinicId == clinicId && !a.IsDeleted);
@@ -87,6 +89,7 @@ namespace ClinicSaaS.API.Controllers
                 type = "Clinic",
                 totalPatients = patients,
                 totalDoctors = doctors,
+                totalStaff = staff,
                 totalAppointments = appointments,
                 todayAppointments = todayAppointments,
                 upcomingAppointments = upcomingAppointments,

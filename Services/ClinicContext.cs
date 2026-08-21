@@ -13,6 +13,7 @@ namespace ClinicSaaS.API.Services
         public bool IsSuperAdmin => Role == "SuperAdmin";
         public bool IsCompanyStaff => Role == "SuperAdmin" || Role == "ClinicStaff";
         public bool IsClinicUser => ClinicId != null;
+        public Guid? RoleId { get; }
 
         public ClinicContext(
             IHttpContextAccessor httpContextAccessor,

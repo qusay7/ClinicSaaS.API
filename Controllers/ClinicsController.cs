@@ -21,11 +21,13 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly IWebHostEnvironment _env;
 
-        public ClinicsController(ApplicationDbContext db, IClinicContext clinicContext)
+        public ClinicsController(ApplicationDbContext db, IClinicContext clinicContext, IWebHostEnvironment env)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _env = env;
         }
 
         // GET: api/clinics
@@ -207,7 +209,70 @@ namespace ClinicSaaS.API.Controllers
             await _db.SaveChangesAsync();
             return Ok(ToResponse(clinic));
 
- 
+
+        }
+
+        // ✅ POST: api/clinics/{id}/logo
+        // رفع/تحديث شعار العيادة — يُخزَّن بمجلد wwwroot عام (بدون توثيق للعرض) لأنه
+        // يظهر بصفحة تسجيل الدخول قبل ما يكون فيه أي جلسة، وأيضاً يُستخدم بالطباعة
+        [HttpPost("{id}/logo")]
+        [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
+        [RequestSizeLimit(5_000_000)] // 5 ميجا كحد تقني للحماية
+        public async Task<IActionResult> UploadLogo(Guid id, IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest("No file provided");
+
+            var clinic = await _db.Clinics.FindAsync(id);
+            if (clinic == null)
+                return NotFound();
+
+            try
+            {
+                // ✅ حذف الصورة القديمة بشكل آمن
+                if (!string.IsNullOrEmpty(clinic.Logo))
+                {
+                    var oldFilePath = Path.Combine("wwwroot", clinic.Logo.TrimStart('/'));
+                    if (System.IO.File.Exists(oldFilePath))
+                    {
+                        try
+                        {
+                            System.IO.File.Delete(oldFilePath);
+                        }
+                        catch (Exception ex)
+                        {
+                            // لو فشل الحذف، ما نوقف العملية — نكمل برفع الجديد
+                            Console.WriteLine($"Could not delete old logo: {ex.Message}");
+                        }
+                    }
+                }
+
+                // ✅ إنشاء الـ folder إذا ما موجود
+                var logoDir = Path.Combine("wwwroot", "logos");
+                if (!Directory.Exists(logoDir))
+                    Directory.CreateDirectory(logoDir);
+
+                // ✅ رفع الصورة الجديدة
+                var fileName = $"{id}.png";
+                var filePath = Path.Combine(logoDir, fileName);
+
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                // ✅ تحديث الـ DB
+                clinic.Logo = $"/logos/{fileName}";
+                clinic.UpdatedAt = DateTime.UtcNow;
+                _db.Clinics.Update(clinic);
+                await _db.SaveChangesAsync();
+
+                return Ok(new { logo = clinic.Logo });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
         }
 
         // PATCH: api/clinics/{id}/toggle

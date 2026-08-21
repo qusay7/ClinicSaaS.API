@@ -14,12 +14,28 @@ namespace ClinicSaaS.API.Controllers
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
         private readonly SubscriptionService _subscriptionService;
+        private readonly IPdfExportService _pdfExport;
+        private readonly IExcelExportService _excelExport;
+        private readonly IWebHostEnvironment _env;
 
-        public UsersController(ApplicationDbContext db, IClinicContext clinicContext, SubscriptionService subscriptionService)
+        public UsersController(ApplicationDbContext db, IClinicContext clinicContext, SubscriptionService subscriptionService,
+            IPdfExportService pdfExport, IExcelExportService excelExport, IWebHostEnvironment env)
         {
             _db = db;
             _clinicContext = clinicContext;
             _subscriptionService = subscriptionService;
+            _pdfExport = pdfExport;
+            _excelExport = excelExport;
+            _env = env;
+        }
+
+        // ✅ يحوّل رابط الشعار النسبي المخزّن (/logos/xxx.png?v=...) لمسار فعلي على القرص
+        private string? ResolveLogoPath(string? logoUrl)
+        {
+            if (string.IsNullOrEmpty(logoUrl)) return null;
+            var cleanPath = logoUrl.Split('?')[0].TrimStart('/');
+            var fullPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), cleanPath.Replace("logos/", "logos" + Path.DirectorySeparatorChar));
+            return System.IO.File.Exists(fullPath) ? fullPath : null;
         }
 
         // GET: api/users
@@ -185,6 +201,69 @@ namespace ClinicSaaS.API.Controllers
 
             await _db.Entry(user).Reference(u => u.Clinic).LoadAsync();
             return CreatedAtAction(nameof(GetAll), new { id = user.Id }, ToResponse(user));
+        }
+
+        // ✅ GET: api/users/export?format=pdf|excel&clinicId=
+        [HttpGet("export")]
+        [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        public async Task<ActionResult> Export([FromQuery] Guid? clinicId, [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            var isRtl = lang == "ar";
+
+            // ✅ نفس منطق فلترة GetByClinic — ClinicAdmin يصدّر عيادته بس
+            var targetClinicId = clinicId ?? _clinicContext.ClinicId;
+            if (_clinicContext.Role == "ClinicAdmin" && targetClinicId != _clinicContext.ClinicId)
+                return Forbid();
+
+            var query = _db.Users.Include(u => u.Clinic).AsQueryable();
+            if (targetClinicId.HasValue)
+                query = query.Where(u => u.ClinicId == targetClinicId);
+
+            var users = await query.OrderByDescending(u => u.CreatedAt).ToListAsync();
+            var clinic = targetClinicId.HasValue ? await _db.Clinics.FindAsync(targetClinicId.Value) : null;
+
+            var rows = users.Select(u => new List<string> {
+                u.FullName, u.Email, u.Role,
+                u.IsActive ? (isRtl ? "مفعّل" : "Active") : (isRtl ? "معطّل" : "Inactive"),
+                u.CreatedAt.ToString("yyyy-MM-dd"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "الاسم", "البريد الإلكتروني", "الدور", "الحالة", "تاريخ الإنشاء" }
+                : new List<string> { "Name", "Email", "Role", "Status", "Created" };
+
+            var summary = new List<(string, string)> {
+                (isRtl ? "إجمالي المستخدمين" : "Total Users", users.Count.ToString()),
+                (isRtl ? "المفعّلين" : "Active", users.Count(u => u.IsActive).ToString()),
+            };
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "المستخدمون" : "Users",
+                    Title = isRtl ? "قائمة المستخدمين" : "Users List",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "users.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "قائمة المستخدمين" : "Users List",
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                });
+                return File(bytes, "application/pdf", "users.pdf");
+            }
         }
 
         // PATCH: api/users/{id}/toggle

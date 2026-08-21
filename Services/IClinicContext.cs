@@ -13,6 +13,7 @@
         bool IsClinicUser { get; }// هل هو مستخدم عادي في العيادة (Doctor أو Receptionist)؟
         List<string> Permissions { get; }           // ✅ أضف
         bool HasPermission(string permission);       // ✅ أضف
+        Guid? RoleId { get; }
 
 
 

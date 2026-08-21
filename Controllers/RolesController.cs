@@ -61,6 +61,7 @@ namespace ClinicSaaS.API.Controllers
                 Description = r.Description,
                 IsActive = r.IsActive,
                 ClinicId = r.ClinicId,   // ✅ جديد — يفيد الفرونت إند لو يعرض أدوار متعددة عيادات
+
                 Permissions = allPermissions.Select(p => new PermissionDto
                 {
                     Id = p.Id,
@@ -173,8 +174,6 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
-
-
         // GET: api/roles/clinic-permissions
         [HttpGet("clinic-permissions")]
         [Authorize(Roles = "ClinicAdmin,SuperAdmin")]
@@ -182,12 +181,29 @@ namespace ClinicSaaS.API.Controllers
         {
             var clinicId = _clinicContext.ClinicId;
 
-            // جلب الأدوار القابلة للتخصيص
-            var roles = await _db.Roles
-                       .Where(r => (r.Name == "Doctor" || r.Name == "Receptionist" || r.Name == "ClinicAdmin")
-                        && r.ClinicId == clinicId)
-                        .ToListAsync();
+            // جلب الأدوار القابلة للتخصيص حسب المستخدم
+            var rolesQuery = _db.Roles.AsQueryable();
 
+            if (_clinicContext.Role == "SuperAdmin")
+            {
+                // المستخدم ليس مرتبطاً بدور
+                // اعرض أدوار Admin
+                rolesQuery = rolesQuery
+                    .Where(r => r.Scope == RoleScope.Admin);
+            }
+            else
+            {
+                // المستخدم لديه RoleId
+                // اعرض أدوار العيادة فقط
+                rolesQuery = rolesQuery
+                    .Where(r =>
+                        r.Scope == RoleScope.Clinic &&
+                        r.ClinicId == clinicId);
+            }
+
+            var roles = await rolesQuery
+                .Where(r => r.IsActive)
+                .ToListAsync();
             var result = new List<object>();
 
             foreach (var role in roles)

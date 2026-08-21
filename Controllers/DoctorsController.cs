@@ -15,12 +15,27 @@ namespace ClinicSaaS.API.Controllers
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
         private readonly SubscriptionService _subscriptionService;
+        private readonly IPdfExportService _pdfExport;
+        private readonly IExcelExportService _excelExport;
+        private readonly IWebHostEnvironment _env;
 
-        public DoctorsController(ApplicationDbContext db, IClinicContext clinicContext, SubscriptionService subscriptionService)
+        public DoctorsController(ApplicationDbContext db, IClinicContext clinicContext, SubscriptionService subscriptionService,
+            IPdfExportService pdfExport, IExcelExportService excelExport, IWebHostEnvironment env)
         {
             _db = db;
             _clinicContext = clinicContext;
             _subscriptionService = subscriptionService;
+            _pdfExport = pdfExport;
+            _excelExport = excelExport;
+            _env = env;
+        }
+
+        private string? ResolveLogoPath(string? logoUrl)
+        {
+            if (string.IsNullOrEmpty(logoUrl)) return null;
+            var cleanPath = logoUrl.Split('?')[0].TrimStart('/');
+            var fullPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), cleanPath.Replace("logos/", "logos" + Path.DirectorySeparatorChar));
+            return System.IO.File.Exists(fullPath) ? fullPath : null;
         }
 
         // GET: api/doctors
@@ -44,6 +59,68 @@ namespace ClinicSaaS.API.Controllers
 
             var doctors = await query.OrderBy(d => d.FullName).ToListAsync();
             return Ok(doctors.Select(d => ToResponse(d)).ToList());
+        }
+
+        // ✅ GET: api/doctors/export?format=pdf|excel
+        [HttpGet("export")]
+        public async Task<ActionResult> Export([FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
+        {
+            if (!_clinicContext.HasPermission("doctors.view") && !_clinicContext.IsCompanyStaff)
+                return Forbid();
+
+            var isRtl = lang == "ar";
+            var query = _db.Doctors.Include(d => d.Department).Where(d => !d.IsDeleted);
+
+            if (!_clinicContext.IsCompanyStaff)
+            {
+                if (_clinicContext.ClinicId == null) return Unauthorized();
+                query = query.Where(d => d.ClinicId == _clinicContext.ClinicId);
+            }
+
+            var doctors = await query.OrderBy(d => d.FullName).ToListAsync();
+
+            var rows = doctors.Select(d => new List<string> {
+                d.FullName, d.Specialty ?? "—", d.Phone ?? "—", d.Department?.Name ?? "—",
+                d.IsActive ? (isRtl ? "نشط" : "Active") : (isRtl ? "غير نشط" : "Inactive"),
+            }).ToList();
+
+            var columns = isRtl
+                ? new List<string> { "الاسم", "التخصص", "الهاتف", "القسم", "الحالة" }
+                : new List<string> { "Name", "Specialty", "Phone", "Department", "Status" };
+
+            var clinic = _clinicContext.ClinicId.HasValue ? await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value) : null;
+            var summary = new List<(string, string)> {
+                (isRtl ? "إجمالي الأطباء" : "Total Doctors", doctors.Count.ToString()),
+                (isRtl ? "النشطون" : "Active", doctors.Count(d => d.IsActive).ToString()),
+            };
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "الأطباء" : "Doctors",
+                    Title = isRtl ? "قائمة الأطباء" : "Doctors List",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "doctors.xlsx");
+            }
+            else
+            {
+                var bytes = _pdfExport.GenerateTableReport(new PdfReportRequest
+                {
+                    Title = isRtl ? "قائمة الأطباء" : "Doctors List",
+                    ClinicName = clinic?.Name ?? "",
+                    LogoPath = ResolveLogoPath(clinic?.Logo),
+                    IsRtl = isRtl,
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                });
+                return File(bytes, "application/pdf", "doctors.pdf");
+            }
         }
 
         // ═══════════════════════════════════════

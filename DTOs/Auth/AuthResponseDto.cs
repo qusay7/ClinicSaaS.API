@@ -12,5 +12,7 @@
         public string? ClinicName { get; set; }// اسم العيادة
         public DateTime ExpiresAt { get; set; }// متى تنتهي صلاحية البطاقة
         public DateTime RefreshTokenExpiresAt { get; set; } // متى تنتهي صلاحية بطاقة التجديد
+        public List<string> Permissions { get; set; } = new(); // قائمة الصلاحيات التي يمتلكها المستخدم
+
     }
 }

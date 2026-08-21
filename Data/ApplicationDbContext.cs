@@ -1,8 +1,14 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ClinicSaaS.API.Data
 {
+    public enum RoleScope
+    {
+        Clinic = 0,    // أدوار العيادة
+        Admin = 1      // أدوار الإدارة
+    }
     public class ApplicationDbContext : DbContext
     {
         private readonly IHttpContextAccessor? _httpContextAccessor;
@@ -489,6 +495,26 @@ namespace ClinicSaaS.API.Data
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        /// <summary>
+        /// أوقات التذكير بالساعات قبل الموعد.
+        /// مثال: "24,2,1" = تذكير قبل 24 ساعة، وقبل ساعتين، وقبل ساعة.
+        /// </summary>
+        public string? CustomReminders { get; set; }
+
+        /// <summary>
+        /// هل تم إرسال إشعار إنشاء الموعد؟
+        /// </summary>
+        public bool AppointmentCreatedNotificationSent { get; set; } = false;
+
+        /// <summary>
+        /// هل تم إرسال إشعار التعديل؟
+        /// </summary>
+        public bool AppointmentUpdatedNotificationSent { get; set; } = false;
+
+        /// <summary>
+        /// هل تم إرسال إشعار الإلغاء؟
+        /// </summary>
+        public bool AppointmentCancelledNotificationSent { get; set; } = false;
     }
 
     // جدول العيادات
@@ -524,6 +550,13 @@ namespace ClinicSaaS.API.Data
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
+
+        // ✅ إعدادات Ultramsg للإشعارات
+        public string? UltramsgInstanceId { get; set; }
+        public string? UltramsgApiToken { get; set; }
+        public bool IsNotificationsEnabled { get; set; } = true;
+
+
     }
 
     // جدول المستخدمين
@@ -633,9 +666,9 @@ namespace ClinicSaaS.API.Data
         public DateTime ExpiresAt { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public bool IsRevoked { get; set; } = false;
-
-        public Guid UserId { get; set; }
-        public User User { get; set; } = default!;
+        public Guid? UserId { get; set; }
+        public User? User { get; set; }
+      
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -662,9 +695,8 @@ namespace ClinicSaaS.API.Data
     {
         public Guid Id { get; set; }
         public Guid DoctorId { get; set; }
-        public Doctor Doctor { get; set; } = default!;
-
-        public DayOfWeek DayOfWeek { get; set; }
+        public Doctor? Doctor { get; set; }
+         public DayOfWeek DayOfWeek { get; set; }
         public TimeOnly StartTime { get; set; }
         public TimeOnly EndTime { get; set; }
         public int SlotDuration { get; set; } = 10;
@@ -718,11 +750,20 @@ namespace ClinicSaaS.API.Data
         public bool IsSystem { get; set; }
         public string? NameEn { get; set; }
         public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+
+        // ✅ تحويل من string إلى enum
+        public RoleScope Scope { get; set; } = RoleScope.Clinic;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
-    }
 
+        // ✅ Computed properties
+        [NotMapped]
+        public string ScopeDisplay => Scope == RoleScope.Admin ? "🔐 Admin" : "🏥 Clinic";
+
+        [NotMapped]
+        public int PermissionsCount => RolePermissions?.Count(rp => rp.IsActive) ?? 0;
+    }
     // Permission
     public class Permission : IAuditable
     {
@@ -744,7 +785,7 @@ namespace ClinicSaaS.API.Data
         public Guid RoleId { get; set; }
         public Guid PermissionId { get; set; }
         public Guid? ClinicId { get; set; }
-
+        public bool IsActive { get; set; } = true;
         public Role Role { get; set; } = null!;
         public Permission Permission { get; set; } = null!;
         public Guid? CreatedBy { get; set; }
@@ -876,7 +917,8 @@ namespace ClinicSaaS.API.Data
     public class NotificationLog : IAuditable
     {
         public Guid Id { get; set; }
-        public Guid AppointmentId { get; set; }
+        public Guid? AppointmentId { get; set; }
+        public Appointment? Appointment { get; set; }
         public Guid ClinicId { get; set; }
         public Guid PatientId { get; set; }
         public string Type { get; set; } = "";
@@ -886,8 +928,7 @@ namespace ClinicSaaS.API.Data
         public bool IsSuccess { get; set; }
         public string? ErrorMessage { get; set; }
         public DateTime SentAt { get; set; }
-        public Appointment? Appointment { get; set; }
-        public Guid? CreatedBy { get; set; }
+         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
@@ -1233,5 +1274,7 @@ namespace ClinicSaaS.API.Data
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
+
+
 
 }
