@@ -22,7 +22,6 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // GET: api/subscriptions
-        // SuperAdmin و ClinicStaff → يريان كل الاشتراكات
         [HttpGet]
         [Authorize(Roles = "SuperAdmin,ClinicStaff")]
         public async Task<ActionResult<IEnumerable<SubscriptionResponseDto>>> GetAll()
@@ -41,28 +40,35 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // GET: api/subscriptions/clinic/{clinicId}
-        // جلب اشتراك عيادة معينة
         [HttpGet("clinic/{clinicId}")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
         public async Task<ActionResult<SubscriptionResponseDto>> GetByClinic(Guid clinicId)
         {
-            // ClinicAdmin يرى عيادته فقط
             if (_clinicContext.Role == "ClinicAdmin" && clinicId != _clinicContext.ClinicId)
                 return Forbid();
 
             var subscription = await _db.Subscriptions
                 .Include(s => s.Clinic)
                 .Include(s => s.Plan)
-                .FirstOrDefaultAsync(s => s.ClinicId == clinicId && s.IsActive);
+                .Where(s => s.ClinicId == clinicId && s.IsActive)
+                .OrderByDescending(s => s.EndDate)
+                .FirstOrDefaultAsync();
 
             if (subscription == null)
-                return NotFound("لا يوجد اشتراك نشط لهذه العيادة");
+                return NotFound("لا يوجد اشتراك لهذه العيادة");
+
+            if (subscription.EndDate <= DateTime.UtcNow)
+                return StatusCode(StatusCodes.Status402PaymentRequired, new
+                {
+                    code = "SUBSCRIPTION_EXPIRED",
+                    message = "انتهى اشتراك العيادة. يرجى التجديد للمتابعة.",
+                    expiredAt = subscription.EndDate
+                });
 
             return Ok(await ToResponse(subscription));
         }
 
         // POST: api/subscriptions
-        // SuperAdmin و ClinicStaff فقط — إنشاء اشتراك جديد
         [HttpPost]
         [Authorize(Roles = "SuperAdmin,ClinicStaff")]
         public async Task<ActionResult<SubscriptionResponseDto>> Create([FromBody] CreateSubscriptionDto dto)
@@ -132,7 +138,6 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // PATCH: api/subscriptions/{id}/cancel
-        // إلغاء اشتراك
         [HttpPatch("{id}/cancel")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff")]
         public async Task<ActionResult> Cancel(Guid id)
@@ -151,9 +156,7 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { message = "تم إلغاء الاشتراك بنجاح" });
         }
 
-        // ✅ POST: api/subscriptions/{clinicId}/renew
-        // تجديد اشتراك عيادة — يحسب تاريخ البداية بذكاء (يكمل من نهاية الاشتراك الحالي لو لسا
-        // ما خلص، أو يبدأ من اليوم لو خلص أصلاً) — يمنع فجوة أو تداخل بين الفترات
+        // POST: api/subscriptions/{clinicId}/renew
         [HttpPost("{clinicId}/renew")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff")]
         public async Task<ActionResult<SubscriptionResponseDto>> Renew(Guid clinicId, [FromBody] RenewSubscriptionDto dto)
@@ -176,13 +179,6 @@ namespace ClinicSaaS.API.Controllers
                     .OrderByDescending(s => s.EndDate)
                     .FirstOrDefaultAsync();
 
-                if (current != null)
-                {
-                    current.IsActive = false;
-                    await _db.SaveChangesAsync();
-                }
-
-                // ✅ لو الاشتراك الحالي لسا ما خلص، الجديد يبدأ من نهايته مباشرة (بدون فجوة أو تداخل)
                 var startDate = (current != null && current.EndDate > DateTime.UtcNow)
                     ? current.EndDate
                     : DateTime.UtcNow;
@@ -194,6 +190,12 @@ namespace ClinicSaaS.API.Controllers
                 var pricePaid = dto.BillingCycle == "yearly"
                     ? plan.YearlyPrice
                     : plan.MonthlyPrice;
+
+                if (current != null)
+                {
+                    current.IsActive = false;
+                    await _db.SaveChangesAsync();
+                }
 
                 var subscription = new Subscription
                 {
@@ -227,15 +229,12 @@ namespace ClinicSaaS.API.Controllers
         // دالة مساعدة — تجلب إحصائيات الاستخدام الحالي
         private async Task<SubscriptionResponseDto> ToResponse(Subscription s)
         {
-            // عدد المستخدمين الحاليين
             var currentUsers = await _db.Users
                 .CountAsync(u => u.ClinicId == s.ClinicId && u.IsActive);
 
-            // عدد الأطباء الحاليين
             var currentDoctors = await _db.Doctors
                 .CountAsync(d => d.ClinicId == s.ClinicId && !d.IsDeleted && d.IsActive);
 
-            // عدد المرضى الحاليين
             var currentPatients = await _db.Patients
                 .CountAsync(p => p.ClinicId == s.ClinicId && !p.IsDeleted);
 

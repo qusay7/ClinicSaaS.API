@@ -3,11 +3,13 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [RequireActiveSubscription]
     [Authorize]
     public class DashboardController : ControllerBase
     {
