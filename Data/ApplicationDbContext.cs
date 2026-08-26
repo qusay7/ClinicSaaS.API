@@ -80,7 +80,9 @@ namespace ClinicSaaS.API.Data
         public DbSet<DoctorTemplateSetting> DoctorTemplateSettings { get; set; }   // ✅ جديد
         public DbSet<Settlement> Settlements { get; set; }   // ✅ جديد — محرك التسوية الموحّد
         public DbSet<Attachment> Attachments { get; set; }   // ✅ جديد — مرفقات المريض
-
+        public DbSet<AppointmentVisitType> AppointmentVisitTypes { get; set; }   // ✅ جديد — بنود الفاتورة
+        public DbSet<Invoice> Invoices { get; set; }
+        public DbSet<InvoiceItem> InvoiceItems { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -362,7 +364,7 @@ namespace ClinicSaaS.API.Data
             modelBuilder.Entity<Clinic>()
                 .HasIndex(c => c.Subdomain)
                 .IsUnique();
-
+            modelBuilder.Entity<Clinic>().Property(x => x.DefaultTaxRate).HasPrecision(5, 2);
             // الإيميل يجب أن يكون فريد بين المستخدمين النشطين فقط
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Email)
@@ -405,7 +407,49 @@ namespace ClinicSaaS.API.Data
                 .HasFilter("[IsActive] = 1")
                 .HasDatabaseName("IX_Subscriptions_ClinicId_ActiveOnly");   // ✅ اسم مختلف صراحة
 
+            // ✅ بنود الفاتورة (أنواع الزيارة الفعلية لكل موعد)
+            modelBuilder.Entity<AppointmentVisitType>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Price).HasPrecision(10, 3);
+                e.Property(x => x.InsuranceRate).HasPrecision(5, 2);
+                e.Property(x => x.InsuranceAmount).HasPrecision(10, 3);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.NoAction);
+                e.HasIndex(x => x.AppointmentId);
+            });
+            modelBuilder.Entity<AppointmentVisitType>().HasQueryFilter(x => !x.IsDeleted);
 
+            // ✅ الفواتير الضريبية والمرتجعات
+            modelBuilder.Entity<Invoice>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.TotalAmount).HasPrecision(18, 9);
+                e.Property(x => x.DiscountAmount).HasPrecision(18, 9);
+                e.Property(x => x.TaxAmount).HasPrecision(18, 9);
+                e.Property(x => x.PayableAmount).HasPrecision(18, 9);
+                e.Property(x => x.TaxRate).HasPrecision(5, 2);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.PaymentDetail).WithMany().HasForeignKey(x => x.PaymentDetailId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.SourceInvoice).WithMany().HasForeignKey(x => x.SourceInvoiceId).OnDelete(DeleteBehavior.NoAction);
+                e.HasIndex(x => new { x.ClinicId, x.InvoiceNumber }).IsUnique().HasFilter("[IsDeleted] = 0");
+                e.HasIndex(x => x.PaymentDetailId);
+            });
+            modelBuilder.Entity<Invoice>().HasQueryFilter(x => !x.IsDeleted);
+
+            modelBuilder.Entity<InvoiceItem>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Quantity).HasPrecision(18, 9);
+                e.Property(x => x.UnitPrice).HasPrecision(18, 9);
+                e.Property(x => x.Discount).HasPrecision(18, 9);
+                e.Property(x => x.TaxRate).HasPrecision(5, 2);
+                e.Property(x => x.TaxAmount).HasPrecision(18, 9);
+                e.HasOne(x => x.Invoice).WithMany(i => i.Items).HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.SourceItem).WithMany().HasForeignKey(x => x.SourceItemId).OnDelete(DeleteBehavior.NoAction);
+                e.HasIndex(x => x.InvoiceId);
+            });
+            modelBuilder.Entity<InvoiceItem>().HasQueryFilter(x => !x.IsDeleted);
         }
 
 
@@ -556,6 +600,13 @@ namespace ClinicSaaS.API.Data
         public string? UltramsgApiToken { get; set; }
         public bool IsNotificationsEnabled { get; set; } = true;
 
+        // ✅ إعدادات الفوترة الضريبية (JoFotara)
+        // ✅ إعدادات الفوترة الضريبية (JoFotara)
+        public string TaxRegistrationType { get; set; } = "income";   // income / sales
+        public int DefaultTaxMethod { get; set; } = 2;                // النمط الافتراضي عند إنشاء فاتورة
+        public decimal DefaultTaxRate { get; set; } = 0;
+        public bool PricesIncludeTax { get; set; } = true;
+        public int LastInvoiceNumber { get; set; } = 0;
 
     }
 
@@ -1089,6 +1140,7 @@ namespace ClinicSaaS.API.Data
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
+
     }
 
     public class Staff : IAuditable
@@ -1275,6 +1327,104 @@ namespace ClinicSaaS.API.Data
         public DateTime? UpdatedAt { get; set; }
     }
 
+    // ══════════════════════════════════════
+    // بنود الفاتورة / أنواع الزيارة الفعلية — سطر لكل بند على نفس الموعد
+    // ══════════════════════════════════════
+    public class AppointmentVisitType : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid AppointmentId { get; set; }
+        public Guid TemplateId { get; set; }
+
+        public decimal Price { get; set; }
+        public decimal InsuranceRate { get; set; }
+        public decimal InsuranceAmount { get; set; }
+
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+        public Appointment? Appointment { get; set; }
+        public TreatmentPlanTemplate? Template { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
 
 
+    // ══════════════════════════════════════
+    // الفاتورة الضريبية — 388 فاتورة بيع، 381 إشعار دائن (مرتجع)
+    // ══════════════════════════════════════
+    public class Invoice : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+
+        public string InvoiceNumber { get; set; } = "";
+        public string DocumentType { get; set; } = "388";   // 388 بيع | 381 مرتجع
+        public DateTime IssueDate { get; set; } = DateTime.UtcNow;
+
+        // ✅ مصدر الفاتورة: دفعة (لفاتورة البيع) أو فاتورة بيع (للمرتجع)
+        public Guid? PaymentDetailId { get; set; }
+        public Guid? SourceInvoiceId { get; set; }          // SourceBill
+
+        public decimal TotalAmount { get; set; }            // قبل الخصم، بدون ضريبة
+        public decimal DiscountAmount { get; set; }
+        public decimal TaxAmount { get; set; }
+        public decimal PayableAmount { get; set; }
+        public string? Notes { get; set; }
+
+        // ✅ الترحيل الضريبي (JoFotara)
+        public bool IsSubmitted { get; set; } = false;
+        public DateTime? SubmittedAt { get; set; }
+        public string? InvoiceXml { get; set; }
+        public string? TaxResponse { get; set; }
+        public string? QrCode { get; set; }
+
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+        public Patient? Patient { get; set; }
+        public PaymentDetail? PaymentDetail { get; set; }
+        public Invoice? SourceInvoice { get; set; }
+        public ICollection<InvoiceItem> Items { get; set; } = new List<InvoiceItem>();
+        // ✅ نمط الضريبة لهذه الفاتورة — 1 خاضع | 2 غير خاضع | 3 معفي | 4 تصدير | 5 خاضع بنسبة صفر
+public int TaxMethod { get; set; } = 2;
+public decimal TaxRate { get; set; }   // النسبة المطبّقة (0 لغير الخاضع)
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ✅ بند الفاتورة — للمرتجع يشير لبند فاتورة البيع (SourceRowGuide)
+    public class InvoiceItem : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid InvoiceId { get; set; }
+        public Guid? TemplateId { get; set; }
+        public Guid? SourceItemId { get; set; }             // بند فاتورة البيع، للمرتجع
+
+        public string Name { get; set; } = "";
+        public decimal Quantity { get; set; } = 1;
+        public decimal UnitPrice { get; set; }
+        public decimal Discount { get; set; }
+        public decimal TaxRate { get; set; }
+        public decimal TaxAmount { get; set; }
+        public string TaxType { get; set; } = "O";          // S / O / Z
+
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Invoice? Invoice { get; set; }
+        public TreatmentPlanTemplate? Template { get; set; }
+        public InvoiceItem? SourceItem { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
 }

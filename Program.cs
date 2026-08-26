@@ -80,7 +80,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddHttpClient<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<ReminderBackgroundService>();
-
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IJoFotaraService, JoFotaraService>();
+builder.Services.AddScoped<IInvoiceXmlBuilder, InvoiceXmlBuilder>();
 // ══════════════════════════════════════
 // 🏢 Clinic Context & Services
 // ══════════════════════════════════════

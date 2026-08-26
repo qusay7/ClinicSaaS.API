@@ -4,12 +4,16 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
+
+
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class AppointmentsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -767,6 +771,7 @@ namespace ClinicSaaS.API.Controllers
         // POST: api/appointments/seed-defaults/{clinicId}
         // POST: api/appointments/seed-defaults/{clinicId}
         [HttpPost("seed-defaults/{clinicId}")]
+        [RequireActiveSubscription]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult> SeedDefaultRoles(Guid clinicId)
         {
@@ -777,8 +782,82 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(new { message = "تم إنشاء الأدوار الأساسية بنجاح" });
         }
+        // ✅ POST: api/appointments/{id}/visit-types
+        // يحفظ بنود الفاتورة كأنواع زيارة فعلية — سطر لكل بند على نفس الموعد،
+        // ويعتمد البند الأول كنوع الزيارة الرئيسي للموعد (تقارير وحصة الطبيب)
+        [HttpPost("{id}/visit-types")]
+        public async Task<ActionResult> SaveVisitTypes(Guid id, [FromBody] SaveVisitTypesDto dto, [FromQuery] string lang = "ar")
+        {
+            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+            if (appointment == null) return NotFound();
+            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
 
+            var items = dto.Items ?? new List<VisitTypeItemDto>();
+            if (items.Count == 0)
+                return BadRequest(Msg(lang, "لا توجد بنود", "No items provided"));
 
+            var templateIds = items.Select(i => i.TemplateId).Distinct().ToList();
+            var templates = await _db.TreatmentPlanTemplates
+                .Where(t => templateIds.Contains(t.Id) && t.ClinicId == appointment.ClinicId)
+                .ToListAsync();
+
+            if (templates.Count != templateIds.Count)
+                return BadRequest(Msg(lang, "أحد القوالب غير موجود", "One of the templates was not found"));
+
+            var existing = await _db.AppointmentVisitTypes
+                .Where(v => v.AppointmentId == id)
+                .ToListAsync();
+            _db.AppointmentVisitTypes.RemoveRange(existing);
+
+            foreach (var item in items)
+            {
+                _db.AppointmentVisitTypes.Add(new AppointmentVisitType
+                {
+                    Id = Guid.NewGuid(),
+                    ClinicId = appointment.ClinicId,
+                    AppointmentId = appointment.Id,
+                    TemplateId = item.TemplateId,
+                    Price = item.Price,
+                    InsuranceRate = item.InsuranceRate,
+                    InsuranceAmount = item.InsuranceAmount,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+
+            var firstTemplate = templates.First(t => t.Id == items[0].TemplateId);
+            appointment.TemplateId = firstTemplate.Id;
+            appointment.Type = firstTemplate.Name;
+            appointment.Price = items.Sum(i => i.Price);
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new { count = items.Count, appointment.TemplateId, appointment.Type, appointment.Price });
+        }
+
+        // ✅ GET: api/appointments/{id}/visit-types — بنود الفاتورة لهذا الموعد
+        [HttpGet("{id}/visit-types")]
+        public async Task<ActionResult> GetVisitTypes(Guid id)
+        {
+            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+            if (appointment == null) return NotFound();
+            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            var items = await _db.AppointmentVisitTypes
+                .Where(v => v.AppointmentId == id)
+                .Include(v => v.Template)
+                .Select(v => new {
+                    v.Id,
+                    v.TemplateId,
+                    name = v.Template!.Name,
+                    nameEn = v.Template.NameEn,
+                    v.Price,
+                    v.InsuranceRate,
+                    v.InsuranceAmount,
+                })
+                .ToListAsync();
+
+            return Ok(items);
+        }
         // ═══════════════════════════════════════
         // ✅ دوال حل السعر والحصة — الأولوية:
         // 1) استثناء خاص بالطبيب لهذا القالب تحديداً
@@ -786,43 +865,43 @@ namespace ClinicSaaS.API.Controllers
         // 3) fallback على دوام الطبيب الافتراضي (للسعر فقط — الحصة بدون fallback، يعني بدون نظام عمولة)
         // ═══════════════════════════════════════
 
-        private async Task<decimal?> ResolveVisitPrice(Guid doctorId, Guid? templateId, bool isFirstVisit, DoctorSchedule doctorSchedule)
-        {
-            if (templateId.HasValue)
-            {
-                // 1 — سعر خاص بالطبيب لهذا القالب بالذات (الأكثر تحديداً)
-                var doctorSetting = await _db.DoctorTemplateSettings
-                    .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == templateId && s.IsActive);
+        //private async Task<decimal?> ResolveVisitPrice(Guid doctorId, Guid? templateId, bool isFirstVisit, DoctorSchedule doctorSchedule)
+        //{
+        //    if (templateId.HasValue)
+        //    {
+        //        // 1 — سعر خاص بالطبيب لهذا القالب بالذات (الأكثر تحديداً)
+        //        var doctorSetting = await _db.DoctorTemplateSettings
+        //            .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == templateId && s.IsActive);
 
-                if (doctorSetting != null)
-                {
-                    var customPrice = isFirstVisit ? doctorSetting.FirstVisitPrice : doctorSetting.FollowUpPrice;
-                    if (customPrice.HasValue) return customPrice;
-                }
+        //        if (doctorSetting != null)
+        //        {
+        //            var customPrice = isFirstVisit ? doctorSetting.FirstVisitPrice : doctorSetting.FollowUpPrice;
+        //            if (customPrice.HasValue) return customPrice;
+        //        }
 
-                // 2 — الإعداد العام للطبيب (TemplateId = null) — سعره الشخصي الافتراضي،
-                // يطبّق على أي قالب ما له استثناء خاص بالخطوة السابقة
-                var doctorGeneralSetting = await _db.DoctorTemplateSettings
-                    .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == null && s.IsActive);
+        //        // 2 — الإعداد العام للطبيب (TemplateId = null) — سعره الشخصي الافتراضي،
+        //        // يطبّق على أي قالب ما له استثناء خاص بالخطوة السابقة
+        //        var doctorGeneralSetting = await _db.DoctorTemplateSettings
+        //            .FirstOrDefaultAsync(s => s.DoctorId == doctorId && s.TemplateId == null && s.IsActive);
 
-                if (doctorGeneralSetting != null)
-                {
-                    var generalPrice = isFirstVisit ? doctorGeneralSetting.FirstVisitPrice : doctorGeneralSetting.FollowUpPrice;
-                    if (generalPrice.HasValue) return generalPrice;
-                }
+        //        if (doctorGeneralSetting != null)
+        //        {
+        //            var generalPrice = isFirstVisit ? doctorGeneralSetting.FirstVisitPrice : doctorGeneralSetting.FollowUpPrice;
+        //            if (generalPrice.HasValue) return generalPrice;
+        //        }
 
-                // 3 — سعر القالب العام (لو الطبيب ما له أي سعر شخصي إطلاقاً)
-                var template = await _db.TreatmentPlanTemplates.FindAsync(templateId.Value);
-                if (template != null)
-                {
-                    var templatePrice = isFirstVisit ? template.FirstVisitPrice : template.FollowUpPrice;
-                    if (templatePrice.HasValue) return templatePrice;
-                }
-            }
+        //        // 3 — سعر القالب العام (لو الطبيب ما له أي سعر شخصي إطلاقاً)
+        //        var template = await _db.TreatmentPlanTemplates.FindAsync(templateId.Value);
+        //        if (template != null)
+        //        {
+        //            var templatePrice = isFirstVisit ? template.FirstVisitPrice : template.FollowUpPrice;
+        //            if (templatePrice.HasValue) return templatePrice;
+        //        }
+        //    }
 
-            // 4 — fallback: سعر دوام الطبيب الافتراضي (النظام القديم، يبقى شغّال للمواعيد بدون قالب)
-            return isFirstVisit ? doctorSchedule.FirstVisitPrice : doctorSchedule.FollowUpPrice;
-        }
+        //    // 4 — fallback: سعر دوام الطبيب الافتراضي (النظام القديم، يبقى شغّال للمواعيد بدون قالب)
+        //    return isFirstVisit ? doctorSchedule.FirstVisitPrice : doctorSchedule.FollowUpPrice;
+        //}
 
         private async Task<decimal?> ResolveDoctorCommission(Guid doctorId, Guid? templateId, bool isFirstVisit, decimal chargedAmount)
         {
@@ -900,5 +979,18 @@ namespace ClinicSaaS.API.Controllers
     {
         public Guid? TemplateId { get; set; }
         public string? Type { get; set; }
+    }
+
+    public class SaveVisitTypesDto
+    {
+        public List<VisitTypeItemDto>? Items { get; set; }
+    }
+
+    public class VisitTypeItemDto
+    {
+        public Guid TemplateId { get; set; }
+        public decimal Price { get; set; }
+        public decimal InsuranceRate { get; set; }
+        public decimal InsuranceAmount { get; set; }
     }
 }

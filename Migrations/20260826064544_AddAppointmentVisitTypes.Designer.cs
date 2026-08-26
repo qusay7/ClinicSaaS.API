@@ -4,6 +4,7 @@ using ClinicSaaS.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicSaaS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260826064544_AddAppointmentVisitTypes")]
+    partial class AddAppointmentVisitTypes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -309,13 +312,6 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<int>("DefaultTaxMethod")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("DefaultTaxRate")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)");
-
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
@@ -333,9 +329,6 @@ namespace ClinicSaaS.API.Migrations
 
                     b.Property<bool>("IsNotificationsEnabled")
                         .HasColumnType("bit");
-
-                    b.Property<int>("LastInvoiceNumber")
-                        .HasColumnType("int");
 
                     b.Property<string>("Logo")
                         .HasColumnType("nvarchar(max)");
@@ -356,9 +349,6 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<bool>("PricesIncludeTax")
-                        .HasColumnType("bit");
-
                     b.Property<string>("SourceNumber")
                         .HasColumnType("nvarchar(max)");
 
@@ -367,10 +357,6 @@ namespace ClinicSaaS.API.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("TaxNumber")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("TaxRegistrationType")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("TimeZone")
@@ -845,175 +831,6 @@ namespace ClinicSaaS.API.Migrations
                     b.HasIndex("ClinicId");
 
                     b.ToTable("InsuranceCompanies");
-                });
-
-            modelBuilder.Entity("ClinicSaaS.API.Data.Invoice", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("DiscountAmount")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("InvoiceNumber")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("InvoiceXml")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsSubmitted")
-                        .HasColumnType("bit");
-
-                    b.Property<DateTime>("IssueDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("PatientId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("PayableAmount")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<Guid?>("PaymentDetailId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("QrCode")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid?>("SourceInvoiceId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("SubmittedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("TaxAmount")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<int>("TaxMethod")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TaxRate")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<string>("TaxResponse")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PatientId");
-
-                    b.HasIndex("PaymentDetailId");
-
-                    b.HasIndex("SourceInvoiceId");
-
-                    b.HasIndex("ClinicId", "InvoiceNumber")
-                        .IsUnique()
-                        .HasFilter("[IsDeleted] = 0");
-
-                    b.ToTable("Invoices");
-                });
-
-            modelBuilder.Entity("ClinicSaaS.API.Data.InvoiceItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("Discount")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<Guid>("InvoiceId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("Quantity")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<Guid?>("SourceItemId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("TaxAmount")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<decimal>("TaxRate")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<string>("TaxType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid?>("TemplateId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("UnitPrice")
-                        .HasPrecision(18, 9)
-                        .HasColumnType("decimal(18,9)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InvoiceId");
-
-                    b.HasIndex("SourceItemId");
-
-                    b.HasIndex("TemplateId");
-
-                    b.ToTable("InvoiceItems");
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.NotificationLog", b =>
@@ -2438,64 +2255,6 @@ namespace ClinicSaaS.API.Migrations
                     b.Navigation("Clinic");
                 });
 
-            modelBuilder.Entity("ClinicSaaS.API.Data.Invoice", b =>
-                {
-                    b.HasOne("ClinicSaaS.API.Data.Clinic", "Clinic")
-                        .WithMany()
-                        .HasForeignKey("ClinicId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
-                        .WithMany()
-                        .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.HasOne("ClinicSaaS.API.Data.PaymentDetail", "PaymentDetail")
-                        .WithMany()
-                        .HasForeignKey("PaymentDetailId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.HasOne("ClinicSaaS.API.Data.Invoice", "SourceInvoice")
-                        .WithMany()
-                        .HasForeignKey("SourceInvoiceId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.Navigation("Clinic");
-
-                    b.Navigation("Patient");
-
-                    b.Navigation("PaymentDetail");
-
-                    b.Navigation("SourceInvoice");
-                });
-
-            modelBuilder.Entity("ClinicSaaS.API.Data.InvoiceItem", b =>
-                {
-                    b.HasOne("ClinicSaaS.API.Data.Invoice", "Invoice")
-                        .WithMany("Items")
-                        .HasForeignKey("InvoiceId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.HasOne("ClinicSaaS.API.Data.InvoiceItem", "SourceItem")
-                        .WithMany()
-                        .HasForeignKey("SourceItemId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.HasOne("ClinicSaaS.API.Data.TreatmentPlanTemplate", "Template")
-                        .WithMany()
-                        .HasForeignKey("TemplateId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.Navigation("Invoice");
-
-                    b.Navigation("SourceItem");
-
-                    b.Navigation("Template");
-                });
-
             modelBuilder.Entity("ClinicSaaS.API.Data.NotificationLog", b =>
                 {
                     b.HasOne("ClinicSaaS.API.Data.Appointment", "Appointment")
@@ -2863,11 +2622,6 @@ namespace ClinicSaaS.API.Migrations
             modelBuilder.Entity("ClinicSaaS.API.Data.InsuranceCompany", b =>
                 {
                     b.Navigation("PatientInsurances");
-                });
-
-            modelBuilder.Entity("ClinicSaaS.API.Data.Invoice", b =>
-                {
-                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Patient", b =>

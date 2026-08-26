@@ -3,12 +3,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class PaymentsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -338,6 +340,8 @@ namespace ClinicSaaS.API.Controllers
                     .ToList(),
             });
         }
+
+
     }
 
     // ═══════════════════════════════════════
