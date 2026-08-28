@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
+
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
@@ -416,6 +417,7 @@ namespace ClinicSaaS.API.Controllers
             [FromQuery] Guid doctorId,
             [FromQuery] string date)
         {
+
             if (!DateOnly.TryParse(date, out var dateOnly))
                 return BadRequest("تاريخ غير صحيح");
 
@@ -493,18 +495,33 @@ namespace ClinicSaaS.API.Controllers
                 var isBooked = bookedTimes.Contains(timeStr);
 
                 // ✅ تحقق إذا الوقت يقع ضمن إجازة جزئية
-                var isAbsent = partialAbsences.Any(a => a.StartTime <= timeOnly && a.EndTime >= timeOnly);
+                var slotEndTime = timeOnly.AddMinutes(doctorSchedule.SlotDuration);
 
+                var isAbsent = partialAbsences.Any(a =>
+                    a.StartTime.HasValue &&
+                    a.EndTime.HasValue &&
+                    timeOnly < a.EndTime.Value &&
+                    slotEndTime > a.StartTime.Value);
+                var isPast =
+    dateOnly < DateOnly.FromDateTime(nowLocal) ||
+    (dateOnly == DateOnly.FromDateTime(nowLocal) &&
+     timeOnly <= TimeOnly.FromDateTime(nowLocal));
+
+                var isAvailable =
+                    !isBooked &&
+                    !isAbsent &&
+                    !isPast;
                 slots.Add(new SlotDto
                 {
                     Time = timeStr,
                     DateTime = current.ToString("yyyy-MM-ddTHH:mm:ss"),
                     IsBooked = isBooked,
                     IsAbsent = isAbsent,
-                    IsAvailable = !isBooked && !isAbsent && current > nowLocal,
+                    IsAvailable = isAvailable,
                 });
                 current = current.AddMinutes(doctorSchedule.SlotDuration);
             }
+
 
             return Ok(new
             {
@@ -522,8 +539,450 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
-        // ═══════ HELPERS ═══════
 
+        
+        // GET: api/schedules/doctor/{doctorId}/calendar?from=2026-08-28&to=2026-09-03
+        [HttpGet("doctor/{doctorId}/calendar")]
+        public async Task<ActionResult<DoctorCalendarDto>> GetDoctorCalendar(
+    Guid doctorId,
+    [FromQuery] DateTime from,
+    [FromQuery] DateTime to)
+        {
+            // =========================================================
+            // 1. التحقق من العيادة
+            // =========================================================
+
+            if (_clinicContext.ClinicId == null)
+                return Unauthorized("لا توجد عيادة مرتبطة بالمستخدم");
+
+            if (to < from)
+                return BadRequest("تاريخ النهاية يجب أن يكون بعد أو يساوي تاريخ البداية");
+
+            // حماية من طلب فترة ضخمة
+            if ((to.Date - from.Date).TotalDays > 366)
+                return BadRequest("الفترة القصوى هي سنة واحدة");
+
+            var clinicId = _clinicContext.ClinicId.Value;
+
+            var fromDate = from.Date;
+            var toDate = to.Date;
+
+            // =========================================================
+            // 2. التحقق من الطبيب
+            // =========================================================
+
+            var doctor = await _db.Doctors
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d =>
+                    d.Id == doctorId &&
+                    d.ClinicId == clinicId &&
+                    d.IsActive &&
+                    !d.IsDeleted);
+
+            if (doctor == null)
+                return NotFound("الطبيب غير موجود");
+
+            // الطبيب نفسه يستطيع رؤية تقويمه فقط
+            if (_clinicContext.Role == "Doctor")
+            {
+                var userEmail = await _db.Users
+                    .Where(u => u.Id == _clinicContext.UserId)
+                    .Select(u => u.Email)
+                    .FirstOrDefaultAsync();
+
+                var doctorRecord = await _db.Doctors
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(d =>
+                        d.Email == userEmail &&
+                        d.ClinicId == clinicId &&
+                        !d.IsDeleted);
+
+                if (doctorRecord == null || doctorRecord.Id != doctorId)
+                    return Forbid();
+            }
+
+            // =========================================================
+            // 3. جدول دوام العيادة
+            // =========================================================
+
+            var clinicSchedules = await _db.ClinicSchedules
+                .AsNoTracking()
+                .Where(s =>
+                    s.ClinicId == clinicId &&
+                    s.IsActive)
+                .ToListAsync();
+
+            // =========================================================
+            // 4. جدول دوام الطبيب
+            // =========================================================
+
+            var doctorSchedules = await _db.DoctorSchedules
+                .AsNoTracking()
+                .Where(s =>
+                    s.DoctorId == doctorId &&
+                    s.IsActive)
+                .ToListAsync();
+
+            // =========================================================
+            // 5. المواعيد
+            // =========================================================
+
+            var appointments = await _db.Appointments
+                .AsNoTracking()
+                .Where(a =>
+                    a.ClinicId == clinicId &&
+                    a.DoctorId == doctorId &&
+                    !a.IsDeleted &&
+                    a.Status != "cancelled" &&
+                    a.AppointmentDate >= fromDate &&
+                    a.AppointmentDate < toDate.AddDays(1))
+                .Include(a => a.Patient)
+                .OrderBy(a => a.AppointmentDate)
+                .ToListAsync();
+
+            // =========================================================
+            // 6. الإجازات
+            // =========================================================
+
+            var absences = await _db.Absences
+                .AsNoTracking()
+                .Where(a =>
+                    a.ClinicId == clinicId &&
+                    !a.IsDeleted &&
+                    (a.DoctorId == null || a.DoctorId == doctorId) &&
+                    a.StartDate.Date <= toDate &&
+                    a.EndDate.Date >= fromDate)
+                .ToListAsync();
+
+            // =========================================================
+            // 7. الوقت المحلي للعيادة
+            // =========================================================
+
+            var nowLocal = await GetClinicNow(clinicId);
+
+            // =========================================================
+            // 8. النتيجة
+            // =========================================================
+
+            var result = new DoctorCalendarDto
+            {
+                DoctorId = doctor.Id,
+                DoctorName = doctor.FullName,
+                From = fromDate,
+                To = toDate
+            };
+
+            // =========================================================
+            // 9. بناء الأيام
+            // =========================================================
+
+            for (var date = fromDate; date <= toDate; date = date.AddDays(1))
+            {
+                var dayOfWeek = date.DayOfWeek;
+
+                // -----------------------------------------------------
+                // دوام الطبيب
+                // -----------------------------------------------------
+
+                var doctorSchedule = doctorSchedules
+                    .FirstOrDefault(s => s.DayOfWeek == dayOfWeek);
+
+                // -----------------------------------------------------
+                // دوام العيادة
+                // -----------------------------------------------------
+
+                var clinicSchedule = clinicSchedules
+                    .FirstOrDefault(s => s.DayOfWeek == dayOfWeek);
+
+                var day = new DoctorCalendarDayDto
+                {
+                    Date = date,
+                    DayOfWeek = (int)dayOfWeek,
+                    IsWorkingDay = doctorSchedule != null && clinicSchedule != null
+                };
+
+                // -----------------------------------------------------
+                // إجازات هذا اليوم
+                // -----------------------------------------------------
+
+                var dayAbsences = absences
+                    .Where(a =>
+                        a.StartDate.Date <= date &&
+                        a.EndDate.Date >= date)
+                    .ToList();
+
+                // -----------------------------------------------------
+                // لا يوجد دوام للطبيب
+                // -----------------------------------------------------
+
+                if (doctorSchedule == null)
+                {
+                    day.IsAbsent = dayAbsences.Any();
+
+                    result.Days.Add(day);
+                    continue;
+                }
+
+                // -----------------------------------------------------
+                // العيادة مغلقة في هذا اليوم
+                // -----------------------------------------------------
+
+                if (clinicSchedule == null)
+                {
+                    day.IsWorkingDay = false;
+                    day.IsAbsent = true;
+
+                    result.Days.Add(day);
+                    continue;
+                }
+
+                // -----------------------------------------------------
+                // إجازة يوم كامل
+                // -----------------------------------------------------
+
+                var fullDayAbsence = dayAbsences.Any(a =>
+                    a.StartTime == null ||
+                    a.EndTime == null);
+
+                if (fullDayAbsence)
+                {
+                    day.IsAbsent = true;
+
+                    result.Days.Add(day);
+                    continue;
+                }
+
+                // -----------------------------------------------------
+                // تحديد وقت العمل الحقيقي
+                //
+                // الطبيب لا يستطيع العمل خارج دوام العيادة
+                // -----------------------------------------------------
+
+                var startTime = doctorSchedule.StartTime > clinicSchedule.OpenTime
+                    ? doctorSchedule.StartTime
+                    : clinicSchedule.OpenTime;
+
+                var endTime = doctorSchedule.EndTime < clinicSchedule.CloseTime
+                    ? doctorSchedule.EndTime
+                    : clinicSchedule.CloseTime;
+
+                // -----------------------------------------------------
+                // إذا لا يوجد تقاطع بين دوام الطبيب والعيادة
+                // -----------------------------------------------------
+
+                if (startTime >= endTime)
+                {
+                    day.IsWorkingDay = false;
+
+                    result.Days.Add(day);
+                    continue;
+                }
+
+                // =====================================================
+                // بناء Slots
+                // =====================================================
+
+                var slotDuration = doctorSchedule.SlotDuration;
+
+                if (slotDuration <= 0)
+                    slotDuration = 15;
+
+                var current = startTime;
+
+                while (current < endTime)
+                {
+                    var slotStart = current;
+                    var slotEnd = current.AddMinutes(slotDuration);
+
+                    // لا ننشئ Slot يتجاوز نهاية دوام الطبيب أو العيادة
+                    if (slotEnd > endTime)
+                        break;
+
+                    // -------------------------------------------------
+                    // DateTime للـ Slot
+                    // -------------------------------------------------
+
+                    var slotDateTime = date.Add(slotStart.ToTimeSpan());
+
+                    var slotEndDateTime = date.Add(slotEnd.ToTimeSpan());
+
+                    // -------------------------------------------------
+                    // البحث عن موعد محجوز
+                    //
+                    // نستخدم فترة زمنية وليس مساواة مباشرة
+                    // حتى لو كان AppointmentDate يحتوي ثواني
+                    // -------------------------------------------------
+
+                    var appointment = appointments.FirstOrDefault(a =>
+                        a.AppointmentDate < slotEndDateTime &&
+                        a.AppointmentDate.AddMinutes(slotDuration) > slotDateTime);
+
+                    // -------------------------------------------------
+                    // فحص الإجازات الجزئية
+                    // -------------------------------------------------
+
+                    var isAbsent = false;
+
+                    foreach (var absence in dayAbsences)
+                    {
+                        // إجازة يوم كامل
+                        if (absence.StartTime == null ||
+                            absence.EndTime == null)
+                        {
+                            isAbsent = true;
+                            break;
+                        }
+
+                        var absenceStart = absence.StartTime.Value;
+                        var absenceEnd = absence.EndTime.Value;
+
+                        // يوجد تداخل بين الـ Slot والإجازة
+                        if (slotStart < absenceEnd &&
+                            slotEnd > absenceStart)
+                        {
+                            isAbsent = true;
+                            break;
+                        }
+                    }
+
+                    // -------------------------------------------------
+                    // هل الموعد في الماضي؟
+                    // -------------------------------------------------
+
+                    var isPast = false;
+
+                    if (date.Date < nowLocal.Date)
+                    {
+                        isPast = true;
+                    }
+                    else if (date.Date == nowLocal.Date)
+                    {
+                        isPast = slotDateTime <= nowLocal;
+                    }
+
+                    // -------------------------------------------------
+                    // إنشاء Slot
+                    // -------------------------------------------------
+
+                    var slot = new DoctorCalendarSlotDto
+                    {
+                        Start = slotStart.ToString("HH:mm"),
+                        End = slotEnd.ToString("HH:mm")
+                    };
+
+                    // -------------------------------------------------
+                    // تحديد الحالة
+                    // -------------------------------------------------
+
+                    if (isAbsent)
+                    {
+                        slot.Status = "absent";
+                    }
+                    else if (appointment != null)
+                    {
+                        slot.Status = "booked";
+                        slot.AppointmentId = appointment.Id;
+                        slot.PatientName = appointment.Patient?.FullName;
+                        slot.AppointmentStatus = appointment.Status;
+                    }
+                    else if (isPast)
+                    {
+                        // الوقت انتهى ولا يمكن حجزه
+                        slot.Status = "past";
+                    }
+                    else
+                    {
+                        slot.Status = "available";
+                    }
+
+                    day.Slots.Add(slot);
+
+                    current = slotEnd;
+                }
+
+                result.Days.Add(day);
+            }
+
+            return Ok(result);
+        }
+        // ═══════ HELPERS ═══════
+        // ✅ GET: api/schedules/doctor/{doctorId}/calendar/export?format=pdf|excel&from=&to=
+        [HttpGet("doctor/{doctorId}/calendar/export")]
+        public async Task<ActionResult> ExportDoctorCalendar(
+            Guid doctorId,
+            [FromQuery] DateTime from,
+            [FromQuery] DateTime to,
+            [FromQuery] string format = "pdf",
+            [FromQuery] string lang = "ar")
+        {
+            var calendarResult = await GetDoctorCalendar(doctorId, from, to);
+            if (calendarResult.Result is not OkObjectResult ok || ok.Value is not DoctorCalendarDto cal)
+                return calendarResult.Result ?? NotFound();
+
+            var isRtl = lang == "ar";
+
+            // أعمدة: الوقت + يوم لكل تاريخ
+            var columns = new List<string> { isRtl ? "الوقت" : "Time" };
+            foreach (var d in cal.Days)
+                columns.Add($"{(isRtl ? GetDayName(d.Date.DayOfWeek) : d.Date.DayOfWeek.ToString())} {d.Date:dd/MM}");
+
+            // صفوف: كل وقت بدء موجود بالمدى
+            var times = cal.Days.SelectMany(d => d.Slots.Select(s => s.Start)).Distinct().OrderBy(x => x).ToList();
+
+            var rows = times.Select(time =>
+            {
+                var row = new List<string> { time };
+                foreach (var d in cal.Days)
+                {
+                    var slot = d.Slots.FirstOrDefault(s => s.Start == time);
+                    row.Add(slot == null ? "—" : slot.Status switch
+                    {
+                        "booked" => slot.PatientName ?? (isRtl ? "محجوز" : "Booked"),
+                        "absent" => isRtl ? "إجازة" : "Off",
+                        "past" => "—",
+                        _ => isRtl ? "متاح" : "Available",
+                    });
+                }
+                return row;
+            }).ToList();
+
+            var summary = new List<(string, string)>
+    {
+        (isRtl ? "الفترة" : "Period", $"{cal.From:yyyy-MM-dd} — {cal.To:yyyy-MM-dd}"),
+        (isRtl ? "المواعيد المحجوزة" : "Booked Slots",
+            cal.Days.Sum(d => d.Slots.Count(s => s.Status == "booked")).ToString()),
+    };
+
+            var doctor = await _db.Doctors.FindAsync(doctorId);
+            var clinic = await _db.Clinics.FindAsync(doctor!.ClinicId);
+
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "تقويم الطبيب" : "Doctor Calendar",
+                    Title = isRtl ? $"تقويم — {cal.DoctorName}" : $"Calendar — {cal.DoctorName}",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "doctor-calendar.xlsx");
+            }
+
+            var pdf = _pdfExport.GenerateTableReport(new PdfReportRequest
+            {
+                Title = isRtl ? "تقويم الطبيب" : "Doctor Calendar",
+                Subtitle = cal.DoctorName,
+                ClinicName = clinic?.Name ?? "",
+                LogoPath = ResolveLogoPath(clinic?.Logo),
+                IsRtl = isRtl,
+                Columns = columns,
+                Rows = rows,
+                SummaryLines = summary,
+            });
+            return File(pdf, "application/pdf", "doctor-calendar.pdf");
+        }
         private static string GetDayName(DayOfWeek day) => day switch
         {
             DayOfWeek.Sunday => "الأحد",
