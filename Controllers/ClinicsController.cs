@@ -220,6 +220,9 @@ namespace ClinicSaaS.API.Controllers
         [RequestSizeLimit(5_000_000)] // 5 ميجا كحد تقني للحماية
         public async Task<IActionResult> UploadLogo(Guid id, IFormFile file)
         {
+            if (_clinicContext.Role == "ClinicAdmin" && id != _clinicContext.ClinicId)
+                return Forbid();
+
             if (file == null || file.Length == 0)
                 return BadRequest("No file provided");
 
