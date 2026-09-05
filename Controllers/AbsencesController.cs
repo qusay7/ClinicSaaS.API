@@ -147,7 +147,7 @@ namespace ClinicSaaS.API.Controllers
         public async Task<ActionResult> Create([FromBody] CreateAbsenceDto dto,
             [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("schedules.absence.add")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             if (dto.DoctorId.HasValue)
@@ -208,7 +208,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("{id}")]
         public async Task<ActionResult> Delete(Guid id, [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("schedules.absence.delete")) return Forbid();
 
             var absence = await _db.Absences.FindAsync(id);
             if (absence == null) return NotFound();

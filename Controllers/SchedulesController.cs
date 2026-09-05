@@ -130,7 +130,7 @@ namespace ClinicSaaS.API.Controllers
             [FromBody] CreateClinicScheduleDto dto,
             [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("schedules.clinic.add")) return Forbid();
             if (_clinicContext.ClinicId == null)
                 return Unauthorized(Msg(lang, "لا توجد عيادة مرتبطة بهذا المستخدم", "No clinic associated"));
 
@@ -179,7 +179,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("clinic/{id}")]
         public async Task<ActionResult> DeleteClinicDay(Guid id, [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("schedules.clinic.delete")) return Forbid();
             var schedule = await _db.ClinicSchedules.FindAsync(id);
             if (schedule == null) return NotFound();
             if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff) return Forbid();
@@ -297,7 +297,7 @@ namespace ClinicSaaS.API.Controllers
             [FromBody] CreateDoctorScheduleDto dto,
             [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("schedules.doctor.add")) return Forbid();
             if (_clinicContext.ClinicId == null && !_clinicContext.IsCompanyStaff)
                 return Unauthorized(Msg(lang, "لا توجد عيادة مرتبطة بهذا المستخدم", "No clinic associated"));
 
@@ -382,7 +382,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("doctor/{id}")]
         public async Task<ActionResult> DeleteDoctorDay(Guid id, [FromQuery] string lang = "ar")
         {
-            if (!_clinicContext.HasPermission("schedules.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("schedules.doctor.delete")) return Forbid();
             var schedule = await _db.DoctorSchedules
                 .Include(s => s.Doctor)
                 .FirstOrDefaultAsync(s => s.Id == id);
