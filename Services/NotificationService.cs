@@ -25,10 +25,9 @@ namespace ClinicSaaS.API.Services
         private readonly ApplicationDbContext _db;
         private readonly ILogger<NotificationService> _logger;
         private readonly HttpClient _httpClient;
+        private readonly IConfiguration _configuration;
 
-        private const string UltramsgApiUrl = "https://api.ultramsg.com";
 
-    
 
         public async Task SendAppointmentUpdate(Appointment appointment)
         {
@@ -91,7 +90,7 @@ namespace ClinicSaaS.API.Services
                         patient.Id,
                         "update",
                         phone,
-                        msg );
+                        msg);
 
 
 
@@ -107,11 +106,13 @@ namespace ClinicSaaS.API.Services
         public NotificationService(
             ApplicationDbContext db,
             ILogger<NotificationService> logger,
-            HttpClient httpClient)
+            HttpClient httpClient,
+            IConfiguration configuration)
         {
             _db = db;
             _logger = logger;
             _httpClient = httpClient;
+            _configuration = configuration;
         }
 
         // ══════════════════════════════════════════════════════
@@ -166,16 +167,9 @@ namespace ClinicSaaS.API.Services
                     return false;
                 }
 
-                // 3️⃣ التحقق من إعدادات Ultramsg
-                if (string.IsNullOrWhiteSpace(clinic.UltramsgInstanceId) ||
-                    string.IsNullOrWhiteSpace(clinic.UltramsgApiToken))
-                {
-                    _logger.LogWarning(
-                        "⚠️ Clinic {ClinicId} missing Ultramsg credentials",
-                        clinicId);
-
+                // 3.5️⃣ التحقق من حد الرسائل اليومي
+                if (await IsDailyLimitReached(clinicId))
                     return false;
-                }
 
                 // 4️⃣ تنسيق الرقم
                 var phone = NormalizePhone(toPhone);
@@ -189,17 +183,15 @@ namespace ClinicSaaS.API.Services
                     return false;
                 }
 
-                // 5️⃣ بناء URL
-                var url =
-                    $"{UltramsgApiUrl}/{clinic.UltramsgInstanceId}/messages/chat";
+                // 5️⃣ بناء URL — خدمة واتساب الخاصة بنا (Baileys)، جلسة مستقلة لكل عيادة
+                var baseUrl = _configuration["WhatsAppService:BaseUrl"] ?? "http://localhost:3001";
+                var url = $"{baseUrl}/clinics/{clinicId}/send";
 
                 // 6️⃣ Payload
                 var payload = new
                 {
-                    token = clinic.UltramsgApiToken,
-                    to = phone,
-                    body = message,
-                    priority = "10"
+                    phone,
+                    message
                 };
 
                 var json = JsonSerializer.Serialize(payload);
@@ -221,7 +213,7 @@ namespace ClinicSaaS.API.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogError(
-                        "❌ Ultramsg HTTP error. Phone: {Phone}, Status: {Status}, Response: {Response}",
+                        "❌ WhatsApp service HTTP error. Phone: {Phone}, Status: {Status}, Response: {Response}",
                         phone,
                         response.StatusCode,
                         responseBody);
@@ -229,14 +221,14 @@ namespace ClinicSaaS.API.Services
                     return false;
                 }
 
-                // 9️⃣ محاولة قراءة استجابة Ultramsg
-                var ultramsgSuccess =
-                    IsUltramsgResponseSuccessful(responseBody);
+                // 9️⃣ محاولة قراءة استجابة الخدمة — { "ok": true } عند النجاح
+                var whatsAppServiceSuccess =
+                    IsWhatsAppServiceResponseSuccessful(responseBody);
 
-                if (!ultramsgSuccess)
+                if (!whatsAppServiceSuccess)
                 {
                     _logger.LogError(
-                        "❌ Ultramsg rejected WhatsApp message. Phone: {Phone}, Response: {Response}",
+                        "❌ WhatsApp service rejected message. Phone: {Phone}, Response: {Response}",
                         phone,
                         responseBody);
 
@@ -582,21 +574,21 @@ namespace ClinicSaaS.API.Services
                     أو إلغاء الموعد إذا لزم الأمر.
                     """;
 
-               var success = await SendWhatsApp(
-    phone,
-    msg,
-    appointment.ClinicId);
+                var success = await SendWhatsApp(
+     phone,
+     msg,
+     appointment.ClinicId);
 
-if (success)
-{
-    await LogNotification(
-        appointmentId,
-        appointment.ClinicId,
-        appointment.Patient.Id,
-        $"custom_{hoursBeforeAppointment}h",
-        phone,
-        msg);
-}
+                if (success)
+                {
+                    await LogNotification(
+                        appointmentId,
+                        appointment.ClinicId,
+                        appointment.Patient.Id,
+                        $"custom_{hoursBeforeAppointment}h",
+                        phone,
+                        msg);
+                }
             }
             catch (Exception ex)
             {
@@ -922,8 +914,8 @@ if (success)
                         Message = message,
 
                         SentAt = DateTime.UtcNow,
+                        IsSuccess = true,
 
-                       
                     });
 
                 await _db.SaveChangesAsync();
@@ -935,6 +927,55 @@ if (success)
                     "❌ Error logging notification for Appointment {AppointmentId}",
                     appointmentId);
             }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // فحص حد الرسائل اليومي حسب خطة اشتراك العيادة
+        // ══════════════════════════════════════════════════════
+
+        /// <summary>
+        /// يرجع true لو العيادة وصلت حد الرسائل اليومي المسموح بخطتها.
+        /// -1 = غير محدود. اليوم يُحسب بتوقيت الأردن.
+        /// </summary>
+        private async Task<bool> IsDailyLimitReached(Guid clinicId)
+        {
+            var limit = await _db.Subscriptions
+                .Where(s => s.ClinicId == clinicId && s.IsActive)
+                .Select(s => (int?)s.Plan.MaxDailyMessages)
+                .FirstOrDefaultAsync();
+
+            // لا يوجد اشتراك فعّال، أو الخطة غير محدودة
+            if (limit == null || limit.Value == -1)
+                return false;
+
+            // حدود اليوم بتوقيت الأردن → UTC
+            var jordanToday = ToJordanTime(DateTime.UtcNow).Date;
+
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(jordanToday, DateTimeKind.Unspecified),
+                JordanTimeZone());
+
+            var endUtc = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(jordanToday.AddDays(1), DateTimeKind.Unspecified),
+                JordanTimeZone());
+
+            var sentToday = await _db.NotificationLogs
+                .CountAsync(n =>
+                    n.ClinicId == clinicId &&
+                    n.IsSuccess &&
+                    n.SentAt >= startUtc &&
+                    n.SentAt < endUtc);
+
+            if (sentToday >= limit.Value)
+            {
+                _logger.LogWarning(
+                    "🚫 Daily message limit reached for clinic {ClinicId}. Sent: {Sent}/{Limit}",
+                    clinicId, sentToday, limit.Value);
+
+                return true;
+            }
+
+            return false;
         }
 
         // ══════════════════════════════════════════════════════
@@ -1069,10 +1110,10 @@ if (success)
 
 
         // ══════════════════════════════════════════════════════
-        // فحص استجابة Ultramsg
+        // فحص استجابة خدمة الواتساب — { "ok": true } عند النجاح
         // ══════════════════════════════════════════════════════
 
-        private static bool IsUltramsgResponseSuccessful(
+        private static bool IsWhatsAppServiceResponseSuccessful(
             string responseBody)
         {
             if (string.IsNullOrWhiteSpace(responseBody))
@@ -1085,46 +1126,13 @@ if (success)
 
                 var root = document.RootElement;
 
-                // بعض استجابات Ultramsg تحتوي على status
-                if (root.TryGetProperty(
-                        "status",
-                        out var statusProperty))
+                if (root.TryGetProperty("ok", out var okProperty) &&
+                    okProperty.ValueKind == JsonValueKind.True)
                 {
-                    var status =
-                        statusProperty
-                            .GetString();
-
-                    if (!string.IsNullOrWhiteSpace(status))
-                    {
-                        if (status.Equals(
-                                "error",
-                                StringComparison.OrdinalIgnoreCase) ||
-                            status.Equals(
-                                "failed",
-                                StringComparison.OrdinalIgnoreCase))
-                        {
-                            return false;
-                        }
-                    }
+                    return true;
                 }
 
-                // وجود error يعتبر فشل
-                if (root.TryGetProperty(
-                        "error",
-                        out var errorProperty))
-                {
-                    if (errorProperty.ValueKind !=
-                        JsonValueKind.Null)
-                    {
-                        var error =
-                            errorProperty.ToString();
-
-                        if (!string.IsNullOrWhiteSpace(error))
-                            return false;
-                    }
-                }
-
-                return true;
+                return false;
             }
             catch
             {

@@ -79,6 +79,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // ══════════════════════════════════════
 builder.Services.AddHttpClient<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddHttpClient<IWhatsAppConnectionService, WhatsAppConnectionService>();
+builder.Services.AddScoped<IWhatsAppConnectionService, WhatsAppConnectionService>();
 builder.Services.AddHostedService<ReminderBackgroundService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IJoFotaraService, JoFotaraService>();
