@@ -51,6 +51,23 @@ namespace ClinicSaaS.API.Controllers
                 .OrderBy(d => d.Name)
                 .ToListAsync();
 
+            // ✅ خطط بدون ميزة "أقسام متعددة" ممكن تكون عندها أقسام زائدة من قبل ما
+            // نضيف هذا القيد (بيانات قديمة نتركها كما هي بدل حذفها) — نختصر أي قائمة/
+            // قائمة منسدلة تعرض الأقسام لـ 3 عناصر بس (إدارة/استقبال/قسم طبي واحد
+            // تمثيلي)، بنفس الـ Id الحقيقية عشان التعيينات الحالية تبقى صحيحة
+            if (!_clinicContext.HasMultipleDepartments && depts.Count > 3)
+            {
+                var admin = depts.FirstOrDefault(d => d.Name.Contains("إدارة") || (d.NameEn ?? "").Contains("Admin", StringComparison.OrdinalIgnoreCase));
+                var reception = depts.FirstOrDefault(d => d.Name.Contains("استقبال") || (d.NameEn ?? "").Contains("Reception", StringComparison.OrdinalIgnoreCase));
+                var medical = depts.FirstOrDefault(d => d.Id != admin?.Id && d.Id != reception?.Id);
+
+                depts = new[] { admin, reception, medical }
+                    .Where(d => d != null)
+                    .Cast<Department>()
+                    .DistinctBy(d => d.Id)
+                    .ToList();
+            }
+
             var result = depts.Select(d => new {
                 d.Id,
                 d.Name,

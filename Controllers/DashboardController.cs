@@ -105,7 +105,9 @@ namespace ClinicSaaS.API.Controllers
                     maxDoctors = subscription.Plan.MaxDoctors,
                     maxUsers = subscription.Plan.MaxUsers,
                     currentPatients = patients,
-                    currentDoctors = doctors
+                    currentDoctors = doctors,
+                    hasElectronicInvoicing = subscription.Plan.HasElectronicInvoicing,
+                    hasMultipleDepartments = subscription.Plan.HasMultipleDepartments
                 }
             });
         }
