@@ -15,5 +15,8 @@
         public DateTime CreatedAt { get; set; }
         public List<string> Features { get; set; } = new();   // ✅ جديد
         public bool IsFeatured { get; set; }                    // ✅ جديد
+        public int MaxDailyMessages { get; set; }
+        public bool HasElectronicInvoicing { get; set; }
+        public bool HasMultipleDepartments { get; set; }
     }
 }

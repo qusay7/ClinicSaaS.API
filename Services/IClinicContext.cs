@@ -15,6 +15,11 @@
         bool HasPermission(string permission);       // ✅ أضف
         Guid? RoleId { get; }
 
+        // ✅ بوابات ميزات الخطة الحالية — من نفس اشتراك العيادة النشط، لا من التوكن
+        // (عشان أي تغيير بالخطة ينعكس فوراً بدون داعي لتسجيل خروج/دخول)
+        bool HasElectronicInvoicing { get; }
+        bool HasMultipleDepartments { get; }
+
 
 
     }

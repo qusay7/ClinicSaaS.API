@@ -4,7 +4,6 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
@@ -258,7 +257,9 @@ namespace ClinicSaaS.API.Controllers
                 CreatedAt = s.CreatedAt,
                 CurrentUsers = currentUsers,
                 CurrentDoctors = currentDoctors,
-                CurrentPatients = currentPatients
+                CurrentPatients = currentPatients,
+                HasElectronicInvoicing = s.Plan.HasElectronicInvoicing,
+                HasMultipleDepartments = s.Plan.HasMultipleDepartments
             };
         }
     }

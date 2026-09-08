@@ -12,5 +12,8 @@
         public int MaxPatients { get; set; }
         public string? FeaturesText { get; set; }   // ✅ جديد — كل ميزة بسطر (\n)
         public bool IsFeatured { get; set; } = false; // ✅ جديد
+        public int MaxDailyMessages { get; set; }
+        public bool HasElectronicInvoicing { get; set; }
+        public bool HasMultipleDepartments { get; set; }
     }
 }

@@ -14,6 +14,8 @@ namespace ClinicSaaS.API.Services
         public bool IsCompanyStaff => Role == "SuperAdmin" || Role == "ClinicStaff";
         public bool IsClinicUser => ClinicId != null;
         public Guid? RoleId { get; }
+        public bool HasElectronicInvoicing { get; }
+        public bool HasMultipleDepartments { get; }
 
         public ClinicContext(
             IHttpContextAccessor httpContextAccessor,
@@ -72,6 +74,33 @@ namespace ClinicSaaS.API.Services
                 {
                     // ✅ لا تفشل الـ request بسبب خطأ في الصلاحيات
                     Console.WriteLine($"ClinicContext error: {ex.Message}");
+                }
+            }
+
+            // ✅ بوابات ميزات الخطة — SuperAdmin/ClinicStaff غير مرتبطين بخطة عيادة
+            // معينة فيعتبروا مفعّلين لكل الميزات دايماً
+            if (IsCompanyStaff)
+            {
+                HasElectronicInvoicing = true;
+                HasMultipleDepartments = true;
+            }
+            else if (ClinicId.HasValue)
+            {
+                try
+                {
+                    var plan = db.Subscriptions
+                        .AsNoTracking()
+                        .Where(s => s.ClinicId == ClinicId && s.IsActive)
+                        .OrderByDescending(s => s.EndDate)
+                        .Select(s => s.Plan)
+                        .FirstOrDefault();
+
+                    HasElectronicInvoicing = plan?.HasElectronicInvoicing ?? false;
+                    HasMultipleDepartments = plan?.HasMultipleDepartments ?? false;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ClinicContext plan-feature error: {ex.Message}");
                 }
             }
         }

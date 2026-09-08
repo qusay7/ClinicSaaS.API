@@ -445,7 +445,7 @@ namespace ClinicSaaS.API.Controllers
         // GET: api/invoices/{id}/export — فاتورة مفردة PDF
         // ═══════════════════════════════════════
         [HttpGet("{id}/export")]
-        public async Task<ActionResult> ExportOne(Guid id, [FromQuery] string lang = "ar")
+        public async Task<ActionResult> ExportOne(Guid id, [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
         {
             var invoice = await _db.Invoices
                 .Include(i => i.Patient).Include(i => i.Items).Include(i => i.SourceInvoice)
@@ -489,6 +489,19 @@ namespace ClinicSaaS.API.Controllers
                 ? (isRtl ? "إشعار دائن (مرتجع)" : "Credit Note")
                 : (isRtl ? "فاتورة بيع" : "Sales Invoice");
 
+            if (format == "excel")
+            {
+                var bytes = _excelExport.GenerateTableReport(new ExcelReportRequest
+                {
+                    SheetName = isRtl ? "فاتورة" : "Invoice",
+                    Title = $"{title} — {invoice.InvoiceNumber}",
+                    Columns = columns,
+                    Rows = rows,
+                    SummaryLines = summary,
+                    IsRtl = isRtl,
+                });
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"invoice-{invoice.InvoiceNumber}.xlsx");
+            }
             var pdf = _pdfExport.GenerateTableReport(new PdfReportRequest
             {
                 Title = $"{title} — {invoice.InvoiceNumber}",
@@ -518,6 +531,16 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.IsSuperAdmin && invoice.ClinicId != _clinicContext.ClinicId) return Forbid();
             if (invoice.IsSubmitted)
                 return BadRequest(Msg(lang, "الفاتورة مُرحّلة مسبقاً", "Invoice already submitted"));
+
+            // ✅ الفواتير الإلكترونية ميزة خاصة بخطط معينة فقط
+            if (!_clinicContext.IsSuperAdmin && !_clinicContext.HasElectronicInvoicing)
+                return StatusCode(StatusCodes.Status402PaymentRequired, new
+                {
+                    code = "FEATURE_NOT_IN_PLAN",
+                    message = Msg(lang,
+                        "ترحيل الفواتير الإلكترونية غير متوفر بخطتك الحالية — يرجى ترقية الخطة",
+                        "Electronic invoice submission is not included in your current plan — please upgrade")
+                });
 
             var clinic = await _db.Clinics.FindAsync(invoice.ClinicId);
             if (clinic == null) return NotFound();

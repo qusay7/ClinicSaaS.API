@@ -4,6 +4,7 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 
 
@@ -12,6 +13,7 @@ namespace ClinicSaaS.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class DepartmentsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -27,6 +29,7 @@ namespace ClinicSaaS.API.Controllers
 
         [HttpPost("seed-defaults/{clinicId}")]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
+        [RequireActiveSubscription]
         public async Task<ActionResult> SeedDefaultDepartments(Guid clinicId)
         {
             var clinic = await _db.Clinics.FindAsync(clinicId);
@@ -74,6 +77,19 @@ namespace ClinicSaaS.API.Controllers
                 .AnyAsync(d => d.ClinicId == _clinicContext.ClinicId && d.Name == dto.Name);
             if (exists) return BadRequest(
                 dto.Name + (": القسم موجود مسبقاً"));
+
+            // ✅ الخطط اللي بدون ميزة "أقسام متعددة" مقيّدة بقسم واحد فقط
+            if (!_clinicContext.HasMultipleDepartments)
+            {
+                var departmentCount = await _db.Departments
+                    .CountAsync(d => d.ClinicId == _clinicContext.ClinicId);
+                if (departmentCount >= 1)
+                    return StatusCode(StatusCodes.Status402PaymentRequired, new
+                    {
+                        code = "FEATURE_NOT_IN_PLAN",
+                        message = "خطتك الحالية تسمح بقسم واحد فقط — يرجى ترقية الخطة لإضافة أقسام متعددة"
+                    });
+            }
 
             var dept = new Department
             {

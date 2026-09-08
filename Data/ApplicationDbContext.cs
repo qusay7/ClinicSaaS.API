@@ -686,6 +686,12 @@ namespace ClinicSaaS.API.Data
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public int MaxDailyMessages { get; set; }
+
+        // ✅ جديد — بوابات ميزات فعلية (لا نصوص وصفية فقط) تتحقق منها الواجهة والباك اند
+        public bool HasElectronicInvoicing { get; set; }
+        public bool HasMultipleDepartments { get; set; }
+
     }
 
     // جدول الاشتراكات (Subscriptions)
@@ -750,7 +756,7 @@ namespace ClinicSaaS.API.Data
          public DayOfWeek DayOfWeek { get; set; }
         public TimeOnly StartTime { get; set; }
         public TimeOnly EndTime { get; set; }
-        public int SlotDuration { get; set; } = 10;
+        public int SlotDuration { get; set; } = 15;
         public bool IsActive { get; set; } = true;
         public decimal? FirstVisitPrice { get; set; }
         public decimal? FollowUpPrice { get; set; }

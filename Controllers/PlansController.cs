@@ -76,8 +76,12 @@ namespace ClinicSaaS.API.Controllers
                 MaxUsers = dto.MaxUsers,
                 MaxDoctors = dto.MaxDoctors,
                 MaxPatients = dto.MaxPatients,
+                MaxDailyMessages = dto.MaxDailyMessages,
                 FeaturesText = NormalizeFeatures(dto.FeaturesText),
                 IsFeatured = dto.IsFeatured,
+                HasElectronicInvoicing = dto.HasElectronicInvoicing,
+                HasMultipleDepartments = dto.HasMultipleDepartments,
+
             };
 
             // ✅ قاعدة عمل: خطة واحدة بس تُعرض كـ "الأكثر اختياراً" بأي لحظة —
@@ -115,8 +119,11 @@ namespace ClinicSaaS.API.Controllers
             plan.MaxUsers = dto.MaxUsers;
             plan.MaxDoctors = dto.MaxDoctors;
             plan.MaxPatients = dto.MaxPatients;
+            plan.MaxDailyMessages = dto.MaxDailyMessages;
             plan.FeaturesText = NormalizeFeatures(dto.FeaturesText);
             plan.IsFeatured = dto.IsFeatured;
+            plan.HasElectronicInvoicing = dto.HasElectronicInvoicing;
+            plan.HasMultipleDepartments = dto.HasMultipleDepartments;
 
             if (plan.IsFeatured)
                 await UnfeatureAllOtherPlans(exceptId: plan.Id);
@@ -176,11 +183,13 @@ namespace ClinicSaaS.API.Controllers
                 return new { message = Msg(lang, "السعر لا يمكن أن يكون سالباً", "Price cannot be negative") };
 
             // -1 تعني "غير محدود" حسب اتفاقية النظام؛ أي رقم أقل من -1 غير منطقي.
-            if (dto.MaxUsers < -1 || dto.MaxDoctors < -1 || dto.MaxPatients < -1)
+            if (dto.MaxUsers < -1 || dto.MaxDoctors < -1 || dto.MaxPatients < -1 || dto.MaxDailyMessages < 0)
                 return new { message = Msg(lang, "الحدود يجب أن تكون -1 (غير محدود) أو رقماً موجباً", "Limits must be -1 (unlimited) or a positive number") };
 
             return null;
         }
+
+
 
         /// <summary>يحوّل نص المميزات (سطر لكل ميزة) لصيغة موحّدة، ويزيل الأسطر الفارغة والمسافات الزائدة.</summary>
         private static string? NormalizeFeatures(string? featuresText)
@@ -216,12 +225,15 @@ namespace ClinicSaaS.API.Controllers
             MaxUsers = p.MaxUsers,
             MaxDoctors = p.MaxDoctors,
             MaxPatients = p.MaxPatients,
+            MaxDailyMessages = p.MaxDailyMessages,
             IsActive = p.IsActive,
             CreatedAt = p.CreatedAt,
             Features = string.IsNullOrWhiteSpace(p.FeaturesText)
                 ? new List<string>()
                 : p.FeaturesText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
             IsFeatured = p.IsFeatured,
+            HasElectronicInvoicing = p.HasElectronicInvoicing,
+            HasMultipleDepartments = p.HasMultipleDepartments,
         };
     }
 }

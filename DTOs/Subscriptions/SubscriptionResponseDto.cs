@@ -24,5 +24,9 @@
         public int CurrentUsers { get; set; }// عدد المستخدمين الحاليين في العيادة
         public int CurrentDoctors { get; set; }// عدد الأطباء الحاليين في العيادة
         public int CurrentPatients { get; set; }// عدد المرضى الحاليين في العيادة
+
+        // ✅ بوابات ميزات فعلية — الفرونت اند يخفي/يعطّل البانلات المقابلة لو false
+        public bool HasElectronicInvoicing { get; set; }
+        public bool HasMultipleDepartments { get; set; }
     }
 }
