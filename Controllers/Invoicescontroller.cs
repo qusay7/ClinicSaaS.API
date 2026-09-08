@@ -273,6 +273,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("from-payment")]
         public async Task<ActionResult> CreateFromPayment([FromBody] CreateInvoiceDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("invoices.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value);
@@ -368,6 +369,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("return")]
         public async Task<ActionResult> CreateReturn([FromBody] CreateReturnDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("invoices.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var clinic = await _db.Clinics.FindAsync(_clinicContext.ClinicId.Value);
@@ -529,6 +531,7 @@ namespace ClinicSaaS.API.Controllers
 
             if (invoice == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && invoice.ClinicId != _clinicContext.ClinicId) return Forbid();
+            if (!_clinicContext.HasPermission("invoices.manage")) return Forbid();
             if (invoice.IsSubmitted)
                 return BadRequest(Msg(lang, "الفاتورة مُرحّلة مسبقاً", "Invoice already submitted"));
 

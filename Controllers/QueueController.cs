@@ -3,13 +3,15 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
 	[ApiController]
 	[Route("api/[controller]")]
 	[Authorize]
-	public class QueueController : ControllerBase
+    [RequireActiveSubscription]	
+    public class QueueController : ControllerBase
 	{
 		private readonly ApplicationDbContext _db;
 		private readonly IClinicContext _clinicContext;
@@ -79,6 +81,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpPost]
 		public async Task<ActionResult> AddToQueue([FromBody] AddToQueueDto dto)
 		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var today = await GetClinicToday();
@@ -143,6 +146,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpPut("{id}/call")]
 		public async Task<ActionResult> CallPatient(Guid id)
 		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var entry = await _db.QueueEntries
@@ -162,6 +166,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpPut("{id}/complete")]
 		public async Task<ActionResult> CompletePatient(Guid id)
 		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var entry = await _db.QueueEntries
@@ -180,6 +185,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpPut("{id}/cancel")]
 		public async Task<ActionResult> CancelPatient(Guid id)
 		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var entry = await _db.QueueEntries

@@ -166,6 +166,7 @@ namespace ClinicSaaS.API.Controllers
             var schedule = await _db.ClinicSchedules.FindAsync(id);
             if (schedule == null) return NotFound();
             if (schedule.ClinicId != _clinicContext.ClinicId && !_clinicContext.IsCompanyStaff) return Forbid();
+            if (!_clinicContext.IsCompanyStaff && !_clinicContext.HasPermission("schedules.clinic.edit")) return Forbid();
 
             if (dto.OpenTime >= dto.CloseTime)
                 return BadRequest(Msg(lang, "وقت الفتح يجب أن يكون قبل وقت الإغلاق", "Open time must be before close time"));
@@ -364,6 +365,7 @@ namespace ClinicSaaS.API.Controllers
                 .FirstOrDefaultAsync(s => s.Id == id);
             if (schedule == null) return NotFound();
             if (!_clinicContext.IsCompanyStaff && schedule.Doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
+            if (!_clinicContext.IsCompanyStaff && !_clinicContext.HasPermission("schedules.doctor.edit")) return Forbid();
 
             if (dto.StartTime >= dto.EndTime)
                 return BadRequest(Msg(lang,

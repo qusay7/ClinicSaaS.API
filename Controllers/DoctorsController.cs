@@ -4,12 +4,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription] 
     public class DoctorsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -306,6 +308,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPatch("{id}/toggle")]
         public async Task<ActionResult> Toggle(Guid id)
         {
+            if (!_clinicContext.IsSuperAdmin && !_clinicContext.HasPermission("doctors.edit")) return Forbid();
             var doctor = await _db.Doctors.FindAsync(id);
 
             if (doctor == null || doctor.IsDeleted)

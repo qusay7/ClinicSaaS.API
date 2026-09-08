@@ -3,12 +3,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class NotificationsController : ControllerBase
     {
         private readonly INotificationService _notif;
@@ -37,6 +39,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("send-confirmation/{appointmentId}")]
         public async Task<ActionResult> SendConfirmation(Guid appointmentId)
         {
+            if (!_clinicContext.HasPermission("appointments.edit")) return Forbid();
             try
             {
                 var appointment = await _db.Appointments
@@ -75,6 +78,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("send-cancellation/{appointmentId}")]
         public async Task<ActionResult> SendCancellation(Guid appointmentId)
         {
+            if (!_clinicContext.HasPermission("appointments.edit")) return Forbid();
             try
             {
                 var appointment = await _db.Appointments
@@ -116,6 +120,7 @@ namespace ClinicSaaS.API.Controllers
             Guid appointmentId,
             [FromQuery] int hoursBeforeAppointment = 1)
         {
+            if (!_clinicContext.HasPermission("appointments.edit")) return Forbid();
             try
             {
                 if (hoursBeforeAppointment <= 0)
@@ -159,6 +164,7 @@ namespace ClinicSaaS.API.Controllers
         /// </summary>
         [HttpPost("send-day-before")]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
+        [RequireActiveSubscription]
         public async Task<ActionResult> SendDayBefore()
         {
             try
@@ -181,6 +187,7 @@ namespace ClinicSaaS.API.Controllers
         /// (عادة ما يعمل تلقائياً في الخلفية)
         /// </summary>
         [HttpPost("send-hour-before")]
+        [RequireActiveSubscription]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
         public async Task<ActionResult> SendHourBefore()
         {
@@ -203,6 +210,7 @@ namespace ClinicSaaS.API.Controllers
         /// تشغيل يدوي للتذكيرات المخصصة (المحددة لكل موعد)
         /// </summary>
         [HttpPost("send-custom-hour-reminders")]
+        [RequireActiveSubscription]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
         public async Task<ActionResult> SendCustomHourReminders()
         {
@@ -406,6 +414,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("send-update/{appointmentId}")]
         public async Task<ActionResult> SendUpdate(Guid appointmentId)
         {
+            if (!_clinicContext.HasPermission("appointments.edit")) return Forbid();
             try
             {
                 var appointment = await _db.Appointments
@@ -462,6 +471,7 @@ namespace ClinicSaaS.API.Controllers
         /// حذف سجل إشعار محدد
         /// </summary>
         [HttpDelete("logs/{notificationId}")]
+        [RequireActiveSubscription]
         [Authorize(Roles = "SuperAdmin,ClinicAdmin")]
         public async Task<ActionResult> DeleteNotificationLog(Guid notificationId)
         {

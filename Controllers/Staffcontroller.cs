@@ -3,12 +3,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]  // ✅ التأكد من أن العيادة لديها اشتراك نشط
     public class StaffController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -63,6 +65,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost]
         public async Task<ActionResult> Create([FromBody] CreateStaffDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("staff.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
             var clinicId = _clinicContext.ClinicId.Value;
 
@@ -214,6 +217,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult> Update(Guid id, [FromBody] CreateStaffDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("staff.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
             var s = await _db.Staff.FirstOrDefaultAsync(s => s.Id == id && s.ClinicId == _clinicContext.ClinicId);
             if (s == null) return NotFound();
@@ -263,6 +267,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}/toggle-active")]
         public async Task<ActionResult> ToggleActive(Guid id, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("staff.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
             var s = await _db.Staff.FirstOrDefaultAsync(s => s.Id == id && s.ClinicId == _clinicContext.ClinicId);
             if (s == null) return NotFound();
@@ -275,6 +280,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("{id}")]
         public async Task<ActionResult> Delete(Guid id, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("staff.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
             var s = await _db.Staff.FirstOrDefaultAsync(s => s.Id == id && s.ClinicId == _clinicContext.ClinicId);
             if (s == null) return NotFound();

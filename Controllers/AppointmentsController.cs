@@ -227,11 +227,16 @@ namespace ClinicSaaS.API.Controllers
         {
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+                .Include(a => a.Doctor)
+                .FirstOrDefaultAsync(a =>
+                    a.Id == id &&
+                    !a.IsDeleted);
 
-            if (appointment == null) return NotFound();
+            if (appointment == null)
+                return NotFound();
 
-            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
+            if (!_clinicContext.IsSuperAdmin &&
+                appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
             return Ok(ToResponse(appointment));
@@ -362,6 +367,7 @@ namespace ClinicSaaS.API.Controllers
             var appointments = await query
                 .OrderByDescending(a => a.AppointmentDate)
                 .Include(a => a.Patient)
+                .Include(a => a.Doctor)
                 .ToListAsync();
 
             return Ok(appointments.Select(a => ToResponse(a)).ToList());
@@ -375,11 +381,11 @@ namespace ClinicSaaS.API.Controllers
 
         // 1️⃣ في method Create
         [HttpPost]
-        public async Task<ActionResult<AppointmentResponseDto>> Create([FromBody] CreateAppointmentDto dto)
+        public async Task<ActionResult<AppointmentResponseDto>> Create(
+    [FromBody] CreateAppointmentDto dto)
         {
-            var lang = dto.Lang ?? "ar";
-
-            if (!_clinicContext.HasPermission("appointments.create")) return Forbid();
+            if (!_clinicContext.HasPermission("appointments.create"))
+                return Forbid();
 
             if (_clinicContext.IsSuperAdmin)
                 return BadRequest("SuperAdmin لا يستطيع إضافة مواعيد مباشرة");
@@ -387,88 +393,169 @@ namespace ClinicSaaS.API.Controllers
             if (_clinicContext.ClinicId == null)
                 return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
 
-            // ... كل الفحوصات الموجودة (بدون تغيير) ...
+            // التأكد من وجود المريض
+            var patient = await _db.Patients
+                .FirstOrDefaultAsync(p =>
+                    p.Id == dto.PatientId &&
+                    p.ClinicId == _clinicContext.ClinicId &&
+                    !p.IsDeleted);
+
+            if (patient == null)
+                return BadRequest(
+                    Msg(dto.Lang, "المريض غير موجود", "Patient not found"));
+
+            // التأكد من وجود الطبيب إذا تم تحديده
+            if (dto.DoctorId.HasValue)
+            {
+                var doctorExists = await _db.Doctors.AnyAsync(d =>
+                    d.Id == dto.DoctorId.Value &&
+                    d.ClinicId == _clinicContext.ClinicId &&
+                    !d.IsDeleted);
+
+                if (!doctorExists)
+                    return BadRequest(
+                        Msg(dto.Lang, "الطبيب غير موجود", "Doctor not found"));
+            }
+
+            // منع حجز موعد بتاريخ غير صالح
+            if (dto.AppointmentDate == default)
+            {
+                return BadRequest(
+                    Msg(dto.Lang, "تاريخ الموعد مطلوب", "Appointment date is required"));
+            }
 
             var appointment = new Appointment
             {
                 Id = Guid.NewGuid(),
                 CreatedAt = DateTime.UtcNow,
                 IsDeleted = false,
+
                 ClinicId = _clinicContext.ClinicId.Value,
                 PatientId = dto.PatientId,
                 DoctorId = dto.DoctorId,
+
                 AppointmentDate = dto.AppointmentDate,
                 Type = dto.Type,
                 Price = dto.Price,
+
                 Status = "scheduled",
+
                 Notes = dto.Notes,
                 Notes2 = dto.Notes2,
-                Notes3 = dto.Notes3,
+                Notes3 = dto.Notes3
             };
 
             _db.Appointments.Add(appointment);
+
             await _db.SaveChangesAsync();
 
-            // ✅ إضافة هذا الجزء (استدعاء الإشعار الذي موجود بالفعل):
+            // نعيد تحميل الموعد مع العلاقات حتى يستطيع NotificationService
+            // الوصول إلى بيانات المريض والطبيب
+            var savedAppointment = await _db.Appointments
+                .Include(a => a.Patient)
+                .Include(a => a.Doctor)
+                .FirstOrDefaultAsync(a => a.Id == appointment.Id);
+
+            if (savedAppointment == null)
+                return StatusCode(500, "Failed to load created appointment");
+
+            // إرسال إشعار التأكيد بدون التأثير على نجاح إنشاء الموعد
             try
             {
-                await _notificationService.SendAppointmentConfirmation(appointment);
+                await _notificationService.SendAppointmentConfirmation(savedAppointment);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to send confirmation: {ex.Message}");
-                // لا تفشل العملية — الموعد محفوظ بالفعل
+                _logger.LogError(
+                    ex,
+                    "Failed to send appointment confirmation for appointment {AppointmentId}",
+                    savedAppointment.Id);
             }
 
-            return CreatedAtAction(nameof(GetById), new { id = appointment.Id }, ToResponse(appointment));
+            return CreatedAtAction(
+                nameof(GetById),
+                new { id = savedAppointment.Id },
+                ToResponse(savedAppointment));
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
 
         // 2️⃣ في method Update
         [HttpPut("{id}")]
-        public async Task<ActionResult<AppointmentResponseDto>> Update(Guid id, [FromBody] UpdateAppointmentDto dto)
+        public async Task<ActionResult<AppointmentResponseDto>> Update(
+    Guid id,
+    [FromBody] UpdateAppointmentDto dto)
         {
-            var lang = "ar";
-
-            if (!_clinicContext.HasPermission("appointments.edit")) return Forbid();
+            if (!_clinicContext.HasPermission("appointments.edit"))
+                return Forbid();
 
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+                .Include(a => a.Doctor)
+                .FirstOrDefaultAsync(a =>
+                    a.Id == id &&
+                    !a.IsDeleted);
 
-            if (appointment == null) return NotFound();
-            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
+            if (appointment == null)
+                return NotFound();
+
+            if (!_clinicContext.IsSuperAdmin &&
+                appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            // ... كل الفحوصات الموجودة (بدون تغيير) ...
-
-            // التعديلات الموجودة (كما هي):
+            // تحديث التاريخ
             if (dto.AppointmentDate.HasValue)
                 appointment.AppointmentDate = dto.AppointmentDate.Value;
+
+            // تحديث الطبيب
             if (dto.DoctorId.HasValue)
+            {
+                var doctorExists = await _db.Doctors.AnyAsync(d =>
+                    d.Id == dto.DoctorId.Value &&
+                    d.ClinicId == appointment.ClinicId &&
+                    !d.IsDeleted);
+
+                if (!doctorExists)
+                    return BadRequest("الطبيب غير موجود");
+
                 appointment.DoctorId = dto.DoctorId.Value;
+            }
+
             appointment.Type = dto.Type;
             appointment.Price = dto.Price;
             appointment.Status = dto.Status ?? appointment.Status;
+
             appointment.Notes = dto.Notes;
             appointment.Notes2 = dto.Notes2;
             appointment.Notes3 = dto.Notes3;
 
             await _db.SaveChangesAsync();
 
-            // ✅ إضافة هذا الجزء (استدعاء الإشعار الموجود):
+            // إعادة تحميل العلاقات بعد التعديل
+            var updatedAppointment = await _db.Appointments
+                .Include(a => a.Patient)
+                .Include(a => a.Doctor)
+                .FirstOrDefaultAsync(a =>
+                    a.Id == id &&
+                    !a.IsDeleted);
+
+            if (updatedAppointment == null)
+                return NotFound();
+
             try
             {
-                await _notificationService.SendAppointmentUpdate(appointment);
+                await _notificationService.SendAppointmentUpdate(
+                    updatedAppointment);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to send update notification: {ex.Message}");
-                // لا تفشل العملية
+                _logger.LogError(
+                    ex,
+                    "Failed to send appointment update notification for appointment {AppointmentId}",
+                    id);
             }
 
-            return Ok(ToResponse(appointment));
+            return Ok(ToResponse(updatedAppointment));
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -477,29 +564,40 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("{id}")]
         public async Task<ActionResult> Delete(Guid id)
         {
-            if (!_clinicContext.HasPermission("appointments.delete")) return Forbid();
+            if (!_clinicContext.HasPermission("appointments.delete"))
+                return Forbid();
 
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+                .Include(a => a.Doctor)
+                .FirstOrDefaultAsync(a =>
+                    a.Id == id &&
+                    !a.IsDeleted);
 
-            if (appointment == null || appointment.IsDeleted) return NotFound();
-            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId)
+            if (appointment == null)
+                return NotFound();
+
+            if (!_clinicContext.IsSuperAdmin &&
+                appointment.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
-            // ✅ إضافة هذا الجزء (قبل الحذف):
+            // إرسال إشعار الإلغاء قبل الحذف
             try
             {
-                await _notificationService.SendAppointmentCancellation(appointment);
+                await _notificationService.SendAppointmentCancellation(
+                    appointment);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to send cancellation notification: {ex.Message}");
-                // لا تفشل العملية
+                _logger.LogError(
+                    ex,
+                    "Failed to send appointment cancellation notification for appointment {AppointmentId}",
+                    id);
             }
 
-            // الحذف الفعلي:
+            // Soft Delete
             appointment.IsDeleted = true;
+
             await _db.SaveChangesAsync();
 
             return NoContent();
@@ -651,11 +749,14 @@ namespace ClinicSaaS.API.Controllers
             if (appointment.DoctorId.HasValue && (appointment.Price ?? 0) > 0)
             {
                 var hasVisitedBefore = await _db.Appointments.AnyAsync(a =>
-                    a.Id != appointment.Id
-                    && a.PatientId == appointment.PatientId
-                    && a.DoctorId == appointment.DoctorId
-                    && !a.IsDeleted
-                    && a.Status == "completed");
+      a.Id != appointment.Id
+      && a.PatientId == appointment.PatientId
+      && a.DoctorId == appointment.DoctorId
+      && !a.IsDeleted
+      && a.Status == "completed"
+      && a.CheckOutTime != null
+      && appointment.CheckOutTime != null
+      && a.CheckOutTime < appointment.CheckOutTime);
 
                 appointment.DoctorCommissionAmount = await ResolveDoctorCommission(
                     appointment.DoctorId.Value,
@@ -791,6 +892,7 @@ namespace ClinicSaaS.API.Controllers
             var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
             if (appointment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
+            if (!_clinicContext.IsSuperAdmin && !_clinicContext.HasPermission("appointments.edit")) return Forbid();
 
             var items = dto.Items ?? new List<VisitTypeItemDto>();
             if (items.Count == 0)
@@ -838,7 +940,10 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet("{id}/visit-types")]
         public async Task<ActionResult> GetVisitTypes(Guid id)
         {
-            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+            var appointment = await _db.Appointments
+    .Include(a => a.Patient)
+    .Include(a => a.Doctor)
+    .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
             if (appointment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
 

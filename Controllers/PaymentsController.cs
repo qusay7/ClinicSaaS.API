@@ -75,6 +75,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost]
         public async Task<ActionResult> CreatePayment([FromBody] CreatePaymentDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("payments.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var appointment = await _db.Appointments
@@ -191,6 +192,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult> UpdatePayment(Guid id, [FromBody] UpdatePaymentDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("payments.manage")) return Forbid();
             var payment = await _db.PaymentDetails.FindAsync(id);
             if (payment == null || payment.ClinicId != _clinicContext.ClinicId) return NotFound();
 

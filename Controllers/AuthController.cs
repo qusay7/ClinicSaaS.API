@@ -327,10 +327,17 @@ namespace ClinicSaaS.API.Controllers
     new { Name="reports.view",          Module="reports",       DisplayName="عرض التقارير",          Group="التقارير"     },
 
     new { Name="insurance.view",        Module="insurance",     DisplayName="عرض التأمين الصحي",     Group="التأمين"      },
+    new { Name="insurance.manage",      Module="insurance",     DisplayName="إدارة التأمين الصحي",   Group="التأمين"      },
 
     new { Name="payments.view",         Module="payments",      DisplayName="المدفوعات",             Group="المدفوعات"   },
+    new { Name="payments.manage",       Module="payments",      DisplayName="إدارة المدفوعات",       Group="المدفوعات"   },
+
+    new { Name="invoices.manage",       Module="invoices",      DisplayName="إدارة الفواتير",        Group="الفواتير"     },
 
     new { Name="staff.view",            Module="staff",         DisplayName="فريق العمل",            Group="فريق العمل"   },
+    new { Name="staff.manage",          Module="staff",         DisplayName="إدارة فريق العمل",      Group="فريق العمل"   },
+
+    new { Name="queue.manage",          Module="queue",         DisplayName="إدارة الطابور",         Group="الطابور"      },
 
     new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
     new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },

@@ -56,7 +56,12 @@ namespace ClinicSaaS.API.Services
         "schedules.clinic.view",
         "schedules.doctor.view",
         "schedules.absence.view",
-        "doctors.view"
+        "doctors.view",
+        "queue.manage",
+        // ✅ يحتاجها فعلياً لإنهاء الزيارة/تحصيل الدفعة عند الـ checkout —
+        // كانت هذي العملية بدون أي قيد صلاحية أصلاً (ثغرة)، فتقييدها الآن
+        // على ClinicAdmin فقط بيكسر تدفق الاستقبال الحالي
+        "payments.manage"
     },
 
             ["Nurse"] = new[] {

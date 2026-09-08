@@ -3,12 +3,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class InsuranceController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -56,6 +58,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("companies")]
         public async Task<ActionResult> CreateCompany([FromBody] CreateInsuranceCompanyDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
             if (string.IsNullOrEmpty(dto.Name))
                 return BadRequest(Msg(lang, "اسم الشركة مطلوب", "Company name is required"));
@@ -87,6 +90,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("companies/{id}")]
         public async Task<ActionResult> UpdateCompany(Guid id, [FromBody] CreateInsuranceCompanyDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             var company = await _db.InsuranceCompanies.FindAsync(id);
             if (company == null || company.ClinicId != _clinicContext.ClinicId) return NotFound();
             company.Name = dto.Name; company.NameEn = dto.NameEn;
@@ -101,6 +105,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("companies/{id}")]
         public async Task<ActionResult> DeleteCompany(Guid id, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             var company = await _db.InsuranceCompanies.FindAsync(id);
             if (company == null || company.ClinicId != _clinicContext.ClinicId) return NotFound();
             var hasPatients = await _db.PatientInsurances.AnyAsync(p => p.InsuranceCompanyId == id);
@@ -149,6 +154,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("patient")]
         public async Task<ActionResult> AddPatientInsurance([FromBody] CreatePatientInsuranceDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var patient = await _db.Patients.FindAsync(dto.PatientId);
@@ -195,6 +201,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpDelete("patient/{id}")]
         public async Task<ActionResult> DeletePatientInsurance(Guid id, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             var insurance = await _db.PatientInsurances.FindAsync(id);
             if (insurance == null || insurance.ClinicId != _clinicContext.ClinicId) return NotFound();
             var hasClaims = await _db.InsuranceClaims.AnyAsync(c => c.PatientInsuranceId == id);
@@ -298,6 +305,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPost("claims")]
         public async Task<ActionResult> CreateClaim([FromBody] CreateInsuranceClaimDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var insurance = await _db.PatientInsurances
@@ -354,6 +362,7 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("claims/{id}/status")]
         public async Task<ActionResult> UpdateClaimStatus(Guid id, [FromBody] UpdateClaimStatusDto dto, [FromQuery] string lang = "ar")
         {
+            if (!_clinicContext.HasPermission("insurance.manage")) return Forbid();
             var claim = await _db.InsuranceClaims.FindAsync(id);
             if (claim == null || claim.ClinicId != _clinicContext.ClinicId) return NotFound();
 
