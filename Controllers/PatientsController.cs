@@ -4,12 +4,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class PatientsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -269,6 +271,14 @@ namespace ClinicSaaS.API.Controllers
             if (string.IsNullOrWhiteSpace(model.FullName))
                 return BadRequest("FullName is required");
 
+            if (!string.IsNullOrWhiteSpace(model.NationalId))
+            {
+                var nationalIdTaken = await _db.Patients.AnyAsync(p =>
+                    p.ClinicId == _clinicContext.ClinicId && !p.IsDeleted && p.NationalId == model.NationalId);
+                if (nationalIdTaken)
+                    return BadRequest("رقم الهوية الوطني مستخدم مسبقاً لمريض آخر بهذي العيادة");
+            }
+
             const int maxRetries = 3;
             for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
@@ -341,6 +351,14 @@ namespace ClinicSaaS.API.Controllers
 
             if (string.IsNullOrWhiteSpace(dto.FullName))
                 return BadRequest("FullName is required");
+
+            if (!string.IsNullOrWhiteSpace(dto.NationalId))
+            {
+                var nationalIdTaken = await _db.Patients.AnyAsync(p =>
+                    p.Id != id && p.ClinicId == patient.ClinicId && !p.IsDeleted && p.NationalId == dto.NationalId);
+                if (nationalIdTaken)
+                    return BadRequest("رقم الهوية الوطني مستخدم مسبقاً لمريض آخر بهذي العيادة");
+            }
 
             patient.FullName = dto.FullName;
             patient.DateOfBirth = dto.DateOfBirth;
