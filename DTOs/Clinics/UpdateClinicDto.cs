@@ -13,5 +13,6 @@
         public string? OwnerEmail { get; set; }
         public string? TaxNumber { get; set; }
         public string? TimeZone { get; set; }
+        public string? TimeFormat { get; set; }
     }
 }

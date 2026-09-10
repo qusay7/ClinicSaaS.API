@@ -313,6 +313,7 @@ namespace ClinicSaaS.API.Controllers
             IsActive = c.IsActive,
             CreatedAt = c.CreatedAt,
             TimeZone = c.TimeZone,   // ✅ جديد
+            TimeFormat = c.TimeFormat,
         };
     }
 }

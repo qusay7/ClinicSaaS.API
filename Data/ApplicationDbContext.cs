@@ -584,6 +584,8 @@ namespace ClinicSaaS.API.Data
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public string TimeZone { get; set; } = "Asia/Amman";
+        // ✅ "12" أو "24" — تفضيل عرض الوقت (12 ساعة AM/PM أو 24 ساعة)، قابل للتعديل من الإعدادات
+        public string TimeFormat { get; set; } = "24";
         public ICollection<User> Users { get; set; } = new List<User>();
         public ICollection<Patient> Patients { get; set; } = new List<Patient>();
         public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();

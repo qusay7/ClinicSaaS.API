@@ -21,5 +21,6 @@
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public string? TimeZone { get; set; }
+        public string? TimeFormat { get; set; }
     }
 }
