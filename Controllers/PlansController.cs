@@ -183,7 +183,9 @@ namespace ClinicSaaS.API.Controllers
                 return new { message = Msg(lang, "السعر لا يمكن أن يكون سالباً", "Price cannot be negative") };
 
             // -1 تعني "غير محدود" حسب اتفاقية النظام؛ أي رقم أقل من -1 غير منطقي.
-            if (dto.MaxUsers < -1 || dto.MaxDoctors < -1 || dto.MaxPatients < -1 || dto.MaxDailyMessages < 0)
+            // (MaxDailyMessages كان مستثنى من هذي القاعدة بالغلط — رغم إن الواجهة والخدمة
+            // اللي تتحقق من الحد اليومي (NotificationService) كانتا تتعاملان معه كـ-1=غير محدود أصلاً)
+            if (dto.MaxUsers < -1 || dto.MaxDoctors < -1 || dto.MaxPatients < -1 || dto.MaxDailyMessages < -1)
                 return new { message = Msg(lang, "الحدود يجب أن تكون -1 (غير محدود) أو رقماً موجباً", "Limits must be -1 (unlimited) or a positive number") };
 
             return null;
