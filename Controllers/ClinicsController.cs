@@ -205,6 +205,14 @@ namespace ClinicSaaS.API.Controllers
             // ✅ يحدّث التوقيت فقط لو المستخدم أرسل قيمة فعلية (ما نمسحه لو الحقل فاضي)
             if (!string.IsNullOrWhiteSpace(dto.TimeZone))
                 clinic.TimeZone = dto.TimeZone;
+            if (!string.IsNullOrWhiteSpace(dto.TimeFormat))
+                clinic.TimeFormat = dto.TimeFormat;
+
+            clinic.NotifyOnCreate = dto.NotifyOnCreate;
+            clinic.NotifyOnEdit = dto.NotifyOnEdit;
+            clinic.NotifyOnCancel = dto.NotifyOnCancel;
+            clinic.NotifyBefore12h = dto.NotifyBefore12h;
+            clinic.NotifyBefore1h = dto.NotifyBefore1h;
 
             await _db.SaveChangesAsync();
             return Ok(ToResponse(clinic));

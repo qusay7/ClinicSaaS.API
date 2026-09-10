@@ -39,6 +39,9 @@ namespace ClinicSaaS.API.Services
                     {
                         _logger.LogInformation("Running hour-before reminders at {Time}", jordanNow);
                         await notifService.SendHourBeforeReminders();
+
+                        _logger.LogInformation("Running 12h-before reminders at {Time}", jordanNow);
+                        await notifService.SendTwelveHourBeforeReminders();
                     }
                 }
                 catch (Exception ex)

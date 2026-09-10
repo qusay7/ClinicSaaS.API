@@ -14,5 +14,10 @@
         public string? TaxNumber { get; set; }
         public string? TimeZone { get; set; }
         public string? TimeFormat { get; set; }
+        public bool NotifyOnCreate { get; set; } = true;
+        public bool NotifyOnEdit { get; set; } = true;
+        public bool NotifyOnCancel { get; set; } = true;
+        public bool NotifyBefore12h { get; set; } = true;
+        public bool NotifyBefore1h { get; set; } = true;
     }
 }

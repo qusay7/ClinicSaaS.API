@@ -4,7 +4,7 @@ namespace ClinicSaaS.API.Services
 {
     public interface IWhatsAppConnectionService
     {
-        Task<(string Status, string? QrDataUrl)> GetStateAsync(Guid clinicId);
+        Task<(string Status, string? QrDataUrl, string? PhoneNumber)> GetStateAsync(Guid clinicId);
         Task<string> ConnectAsync(Guid clinicId);
     }
 
@@ -24,11 +24,11 @@ namespace ClinicSaaS.API.Services
 
         private string BaseUrl => _configuration["WhatsAppService:BaseUrl"] ?? "http://localhost:3001";
 
-        public async Task<(string Status, string? QrDataUrl)> GetStateAsync(Guid clinicId)
+        public async Task<(string Status, string? QrDataUrl, string? PhoneNumber)> GetStateAsync(Guid clinicId)
         {
             var response = await _httpClient.GetAsync($"{BaseUrl}/clinics/{clinicId}/qr-data");
             if (!response.IsSuccessStatusCode)
-                return ("not_started", null);
+                return ("not_started", null, null);
 
             var body = await response.Content.ReadAsStringAsync();
             using var document = JsonDocument.Parse(body);
@@ -38,8 +38,11 @@ namespace ClinicSaaS.API.Services
             var qrDataUrl = root.TryGetProperty("qrDataUrl", out var qrProp) && qrProp.ValueKind == JsonValueKind.String
                 ? qrProp.GetString()
                 : null;
+            var phoneNumber = root.TryGetProperty("phoneNumber", out var phoneProp) && phoneProp.ValueKind == JsonValueKind.String
+                ? phoneProp.GetString()
+                : null;
 
-            return (status, qrDataUrl);
+            return (status, qrDataUrl, phoneNumber);
         }
 
         public async Task<string> ConnectAsync(Guid clinicId)

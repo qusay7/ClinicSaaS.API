@@ -586,6 +586,13 @@ namespace ClinicSaaS.API.Data
         public string TimeZone { get; set; } = "Asia/Amman";
         // ✅ "12" أو "24" — تفضيل عرض الوقت (12 ساعة AM/PM أو 24 ساعة)، قابل للتعديل من الإعدادات
         public string TimeFormat { get; set; } = "24";
+
+        // ✅ متى تُرسَل رسائل واتساب تلقائياً — كل مفتاح مستقل وقابل للتعديل من الإعدادات
+        public bool NotifyOnCreate { get; set; } = true;
+        public bool NotifyOnEdit { get; set; } = true;
+        public bool NotifyOnCancel { get; set; } = true;
+        public bool NotifyBefore12h { get; set; } = true;
+        public bool NotifyBefore1h { get; set; } = true;
         public ICollection<User> Users { get; set; } = new List<User>();
         public ICollection<Patient> Patients { get; set; } = new List<Patient>();
         public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();

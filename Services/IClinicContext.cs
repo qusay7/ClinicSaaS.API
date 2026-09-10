@@ -20,6 +20,11 @@
         bool HasElectronicInvoicing { get; }
         bool HasMultipleDepartments { get; }
 
+        // ✅ متى تُرسَل رسائل واتساب تلقائياً — من إعدادات العيادة نفسها، لا الخطة
+        bool NotifyOnCreate { get; }
+        bool NotifyOnEdit { get; }
+        bool NotifyOnCancel { get; }
+
 
 
     }

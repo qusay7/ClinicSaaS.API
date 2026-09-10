@@ -16,6 +16,9 @@ namespace ClinicSaaS.API.Services
         public Guid? RoleId { get; }
         public bool HasElectronicInvoicing { get; }
         public bool HasMultipleDepartments { get; }
+        public bool NotifyOnCreate { get; } = true;
+        public bool NotifyOnEdit { get; } = true;
+        public bool NotifyOnCancel { get; } = true;
 
         public ClinicContext(
             IHttpContextAccessor httpContextAccessor,
@@ -101,6 +104,26 @@ namespace ClinicSaaS.API.Services
                 catch (Exception ex)
                 {
                     Console.WriteLine($"ClinicContext plan-feature error: {ex.Message}");
+                }
+
+                try
+                {
+                    var notifyFlags = db.Clinics
+                        .AsNoTracking()
+                        .Where(c => c.Id == ClinicId)
+                        .Select(c => new { c.NotifyOnCreate, c.NotifyOnEdit, c.NotifyOnCancel })
+                        .FirstOrDefault();
+
+                    if (notifyFlags != null)
+                    {
+                        NotifyOnCreate = notifyFlags.NotifyOnCreate;
+                        NotifyOnEdit = notifyFlags.NotifyOnEdit;
+                        NotifyOnCancel = notifyFlags.NotifyOnCancel;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ClinicContext notify-flags error: {ex.Message}");
                 }
             }
         }

@@ -462,7 +462,8 @@ namespace ClinicSaaS.API.Controllers
             // إرسال إشعار التأكيد بدون التأثير على نجاح إنشاء الموعد
             try
             {
-                await _notificationService.SendAppointmentConfirmation(savedAppointment);
+                if (_clinicContext.NotifyOnCreate)
+                    await _notificationService.SendAppointmentConfirmation(savedAppointment);
             }
             catch (Exception ex)
             {
@@ -544,8 +545,9 @@ namespace ClinicSaaS.API.Controllers
 
             try
             {
-                await _notificationService.SendAppointmentUpdate(
-                    updatedAppointment);
+                if (_clinicContext.NotifyOnEdit)
+                    await _notificationService.SendAppointmentUpdate(
+                        updatedAppointment);
             }
             catch (Exception ex)
             {
@@ -584,8 +586,9 @@ namespace ClinicSaaS.API.Controllers
             // إرسال إشعار الإلغاء قبل الحذف
             try
             {
-                await _notificationService.SendAppointmentCancellation(
-                    appointment);
+                if (_clinicContext.NotifyOnCancel)
+                    await _notificationService.SendAppointmentCancellation(
+                        appointment);
             }
             catch (Exception ex)
             {

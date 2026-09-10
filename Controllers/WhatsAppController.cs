@@ -16,22 +16,25 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly IClinicContext _clinicContext;
         private readonly IWhatsAppConnectionService _whatsAppConnection;
+        private readonly INotificationService _notificationService;
 
-        public WhatsAppController(IClinicContext clinicContext, IWhatsAppConnectionService whatsAppConnection)
+        public WhatsAppController(IClinicContext clinicContext, IWhatsAppConnectionService whatsAppConnection, INotificationService notificationService)
         {
             _clinicContext = clinicContext;
             _whatsAppConnection = whatsAppConnection;
+            _notificationService = notificationService;
         }
 
-        // GET: api/whatsapp/status — الحالة الحالية + QR (لو بمرحلة الربط)
+        // GET: api/whatsapp/status — الحالة الحالية + QR (لو بمرحلة الربط) + الرقم المتصل وعدد الرسائل المتبقية
         [HttpGet("status")]
         public async Task<ActionResult> GetStatus()
         {
             if (_clinicContext.ClinicId == null)
                 return Unauthorized();
 
-            var (status, qrDataUrl) = await _whatsAppConnection.GetStateAsync(_clinicContext.ClinicId.Value);
-            return Ok(new { status, qrDataUrl });
+            var (status, qrDataUrl, phoneNumber) = await _whatsAppConnection.GetStateAsync(_clinicContext.ClinicId.Value);
+            var (used, limit) = await _notificationService.GetMessageQuota(_clinicContext.ClinicId.Value);
+            return Ok(new { status, qrDataUrl, phoneNumber, messagesUsedToday = used, messagesLimit = limit });
         }
 
         // POST: api/whatsapp/connect — يبدأ جلسة ربط جديدة (يولّد QR للمسح)

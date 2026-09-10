@@ -18,6 +18,10 @@ namespace ClinicSaaS.API.Services
 
         Task SendDayBeforeReminders();
         Task SendHourBeforeReminders();
+        Task SendTwelveHourBeforeReminders();
+
+        /// <summary>عدد الرسائل المُرسلة اليوم (بتوقيت الأردن) والحد الأقصى بخطة العيادة (-1 = غير محدود)</summary>
+        Task<(int Used, int Limit)> GetMessageQuota(Guid clinicId);
     }
 
     public class NotificationService : INotificationService
@@ -808,6 +812,7 @@ namespace ClinicSaaS.API.Services
                             !a.IsDeleted &&
                             a.Status != "cancelled" &&
                             a.Status != "completed" &&
+                            a.Clinic!.NotifyBefore1h &&
                             a.AppointmentDate >= fromUtc &&
                             a.AppointmentDate <= toUtc)
                         .ToListAsync();
@@ -884,6 +889,124 @@ namespace ClinicSaaS.API.Services
         }
 
         // ══════════════════════════════════════════════════════
+        // 7️⃣ تذكير قبل 12 ساعة
+        // ══════════════════════════════════════════════════════
+
+        public async Task SendTwelveHourBeforeReminders()
+        {
+            try
+            {
+                var jordanNow =
+                    ToJordanTime(DateTime.UtcNow);
+
+                // نبحث عن المواعيد بين 11س55د و12س5د من الآن — نفس هامش الـ10 دقائق
+                // المستخدم بتذكير الساعة، عشان مهمة الخلفية (تشتغل كل شوي) ما تفوّت موعداً
+                var fromLocal =
+                    jordanNow.AddMinutes(715);
+
+                var toLocal =
+                    jordanNow.AddMinutes(725);
+
+                var fromUtc =
+                    TimeZoneInfo.ConvertTimeToUtc(
+                        DateTime.SpecifyKind(
+                            fromLocal,
+                            DateTimeKind.Unspecified),
+                        JordanTimeZone());
+
+                var toUtc =
+                    TimeZoneInfo.ConvertTimeToUtc(
+                        DateTime.SpecifyKind(
+                            toLocal,
+                            DateTimeKind.Unspecified),
+                        JordanTimeZone());
+
+                var appointments =
+                    await _db.Appointments
+                        .Include(a => a.Patient)
+                        .Include(a => a.Doctor)
+                        .Include(a => a.Clinic)
+                        .Where(a =>
+                            !a.IsDeleted &&
+                            a.Status != "cancelled" &&
+                            a.Status != "completed" &&
+                            a.Clinic!.NotifyBefore12h &&
+                            a.AppointmentDate >= fromUtc &&
+                            a.AppointmentDate <= toUtc)
+                        .ToListAsync();
+
+                _logger.LogInformation(
+                    "📢 12h-before reminders: {Count} appointments",
+                    appointments.Count);
+
+                foreach (var appointment in appointments)
+                {
+                    if (appointment.Patient == null ||
+                        string.IsNullOrWhiteSpace(
+                            appointment.Patient.Phone))
+                    {
+                        continue;
+                    }
+
+                    var alreadySent =
+                        await _db.NotificationLogs.AnyAsync(n =>
+                            n.AppointmentId == appointment.Id &&
+                            n.Type == "12h_before" &&
+                            n.IsSuccess);
+
+                    if (alreadySent)
+                        continue;
+
+                    var localTime =
+                        ToJordanTime(
+                            appointment.AppointmentDate);
+
+                    var phone =
+                        NormalizePhone(
+                            appointment.Patient.Phone);
+
+                    var msg = $"""
+                        ⏰ *تذكير بموعدك بعد 12 ساعة*
+
+                        {appointment.Patient.FullName}،
+
+                        موعدك في
+                        {appointment.Clinic?.Name ?? "العيادة"}
+                        بعد 12 ساعة تقريباً 🏥
+
+                        📅 التاريخ: {localTime:dd/MM/yyyy}
+                        🕐 الوقت: {localTime:hh:mm tt}
+                        👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                        نراك قريباً 🌟
+                        """;
+
+                    var success = await SendWhatsApp(
+                        phone,
+                        msg,
+                        appointment.ClinicId);
+                    if (success)
+                    {
+                        await LogNotification(
+                        appointment.Id,
+                        appointment.ClinicId,
+                        appointment.Patient.Id,
+                        "12h_before",
+                        phone,
+                        msg
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "❌ Error in SendTwelveHourBeforeReminders");
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
         // تسجيل الإشعار
         // ══════════════════════════════════════════════════════
 
@@ -939,6 +1062,25 @@ namespace ClinicSaaS.API.Services
         /// </summary>
         private async Task<bool> IsDailyLimitReached(Guid clinicId)
         {
+            var (used, limit) = await GetMessageQuota(clinicId);
+
+            if (limit == -1)
+                return false;
+
+            if (used >= limit)
+            {
+                _logger.LogWarning(
+                    "🚫 Daily message limit reached for clinic {ClinicId}. Sent: {Sent}/{Limit}",
+                    clinicId, used, limit);
+
+                return true;
+            }
+
+            return false;
+        }
+
+        public async Task<(int Used, int Limit)> GetMessageQuota(Guid clinicId)
+        {
             var limit = await _db.Subscriptions
                 .Where(s => s.ClinicId == clinicId && s.IsActive)
                 .Select(s => (int?)s.Plan.MaxDailyMessages)
@@ -946,7 +1088,7 @@ namespace ClinicSaaS.API.Services
 
             // لا يوجد اشتراك فعّال، أو الخطة غير محدودة
             if (limit == null || limit.Value == -1)
-                return false;
+                return (0, -1);
 
             // حدود اليوم بتوقيت الأردن → UTC
             var jordanToday = ToJordanTime(DateTime.UtcNow).Date;
@@ -966,16 +1108,7 @@ namespace ClinicSaaS.API.Services
                     n.SentAt >= startUtc &&
                     n.SentAt < endUtc);
 
-            if (sentToday >= limit.Value)
-            {
-                _logger.LogWarning(
-                    "🚫 Daily message limit reached for clinic {ClinicId}. Sent: {Sent}/{Limit}",
-                    clinicId, sentToday, limit.Value);
-
-                return true;
-            }
-
-            return false;
+            return (sentToday, limit.Value);
         }
 
         // ══════════════════════════════════════════════════════
