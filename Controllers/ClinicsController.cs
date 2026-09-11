@@ -322,6 +322,11 @@ namespace ClinicSaaS.API.Controllers
             CreatedAt = c.CreatedAt,
             TimeZone = c.TimeZone,   // ✅ جديد
             TimeFormat = c.TimeFormat,
+            NotifyOnCreate = c.NotifyOnCreate,
+            NotifyOnEdit = c.NotifyOnEdit,
+            NotifyOnCancel = c.NotifyOnCancel,
+            NotifyBefore12h = c.NotifyBefore12h,
+            NotifyBefore1h = c.NotifyBefore1h,
         };
     }
 }
