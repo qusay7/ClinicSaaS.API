@@ -20,10 +20,11 @@ namespace ClinicSaaS.API.Controllers
         private readonly IPdfExportService _pdfExport;
         private readonly IExcelExportService _excelExport;
         private readonly IWebHostEnvironment _env;
+        private readonly INotificationService _notificationService;
 
 
         public PatientsController(ApplicationDbContext db, IClinicContext clinicContext, SubscriptionService subscriptionService,
-            IPdfExportService pdfExport, IExcelExportService excelExport, IWebHostEnvironment env)
+            IPdfExportService pdfExport, IExcelExportService excelExport, IWebHostEnvironment env, INotificationService notificationService)
         {
             _db = db;
             _clinicContext = clinicContext;
@@ -31,6 +32,7 @@ namespace ClinicSaaS.API.Controllers
             _pdfExport = pdfExport;
             _excelExport = excelExport;
             _env = env;
+            _notificationService = notificationService;
         }
 
         // ✅ يحوّل رابط الشعار النسبي المخزّن لمسار فعلي على القرص
@@ -322,6 +324,7 @@ namespace ClinicSaaS.API.Controllers
                 try
                 {
                     await _db.SaveChangesAsync();
+                    await CheckPatientQuotaAlert(patient.ClinicId);
                     return CreatedAtAction(nameof(GetById), new { id = patient.Id }, ToResponse(patient));
                 }
                 catch (DbUpdateException) when (attempt < maxRetries)
@@ -332,6 +335,39 @@ namespace ClinicSaaS.API.Controllers
             }
 
             return Conflict("تعذر إنشاء رقم مريض فريد، يرجى المحاولة مرة أخرى");
+        }
+
+        // ✅ ينبّه بجرس الواجهة عند اقتراب عدد المرضى من حد الخطة (85%+) — مرة واحدة
+        // فقط لحد ما يُقرأ التنبيه، عشان ما يتكرر مع كل مريض جديد
+        private async Task CheckPatientQuotaAlert(Guid clinicId)
+        {
+            try
+            {
+                var sub = await _db.Subscriptions
+                    .Include(s => s.Plan)
+                    .Where(s => s.ClinicId == clinicId && s.IsActive)
+                    .OrderByDescending(s => s.EndDate)
+                    .FirstOrDefaultAsync();
+
+                if (sub == null || sub.Plan.MaxPatients == -1) return;
+
+                var count = await _db.Patients.CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted);
+                var pct = (double)count / sub.Plan.MaxPatients * 100;
+                if (pct < 85) return;
+
+                const string title = "تنبيه الحصة";
+                var alreadyAlerted = await _db.AppNotifications.AnyAsync(n =>
+                    n.ClinicId == clinicId && n.Type == "alert" && n.Title == title && !n.IsRead);
+                if (alreadyAlerted) return;
+
+                await _notificationService.CreateAppNotification(
+                    clinicId, "alert", title,
+                    $"اقتربت من الحد الأقصى لعدد المرضى ({Math.Round(pct)}%)");
+            }
+            catch
+            {
+                // ✅ تنبيه ثانوي — لا يفشل إنشاء المريض بسببه
+            }
         }
 
         // PUT: api/patients/{id}

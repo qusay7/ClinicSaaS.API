@@ -497,5 +497,61 @@ namespace ClinicSaaS.API.Controllers
                 return BadRequest(new { error = ex.Message });
             }
         }
+
+        // ══════════════════════════════════════
+        // جرس إشعارات الواجهة — قائمة موحّدة لكل موظفي العيادة
+        // ══════════════════════════════════════
+
+        // GET: api/notifications?take=20
+        [HttpGet]
+        public async Task<ActionResult> GetAll([FromQuery] int take = 20)
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var items = await _db.AppNotifications
+                .Where(n => n.ClinicId == _clinicContext.ClinicId)
+                .OrderByDescending(n => n.CreatedAt)
+                .Take(take)
+                .Select(n => new
+                {
+                    id = n.Id,
+                    title = n.Title,
+                    message = n.Message,
+                    type = n.Type,
+                    read = n.IsRead,
+                    createdAt = n.CreatedAt,
+                })
+                .ToListAsync();
+
+            return Ok(items);
+        }
+
+        // PUT: api/notifications/{id}/read
+        [HttpPut("{id}/read")]
+        public async Task<ActionResult> MarkAsRead(Guid id)
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var notif = await _db.AppNotifications.FirstOrDefaultAsync(n => n.Id == id);
+            if (notif == null) return NotFound();
+            if (notif.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            notif.IsRead = true;
+            await _db.SaveChangesAsync();
+            return Ok();
+        }
+
+        // PUT: api/notifications/read-all
+        [HttpPut("read-all")]
+        public async Task<ActionResult> MarkAllAsRead()
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            await _db.AppNotifications
+                .Where(n => n.ClinicId == _clinicContext.ClinicId && !n.IsRead)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(n => n.IsRead, true));
+
+            return Ok();
+        }
     }
 }

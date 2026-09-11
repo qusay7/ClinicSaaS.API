@@ -22,6 +22,9 @@ namespace ClinicSaaS.API.Services
 
         /// <summary>عدد الرسائل المُرسلة اليوم (بتوقيت الأردن) والحد الأقصى بخطة العيادة (-1 = غير محدود)</summary>
         Task<(int Used, int Limit)> GetMessageQuota(Guid clinicId);
+
+        /// <summary>ينشئ إشعاراً بجرس الواجهة لكل موظفي العيادة (type: appointment | alert | system)</summary>
+        Task CreateAppNotification(Guid clinicId, string type, string title, string message);
     }
 
     public class NotificationService : INotificationService
@@ -1003,6 +1006,32 @@ namespace ClinicSaaS.API.Services
                 _logger.LogError(
                     ex,
                     "❌ Error in SendTwelveHourBeforeReminders");
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // إشعار جرس الواجهة
+        // ══════════════════════════════════════════════════════
+
+        public async Task CreateAppNotification(Guid clinicId, string type, string title, string message)
+        {
+            try
+            {
+                _db.AppNotifications.Add(new AppNotification
+                {
+                    Id = Guid.NewGuid(),
+                    ClinicId = clinicId,
+                    Type = type,
+                    Title = title,
+                    Message = message,
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow,
+                });
+                await _db.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error creating app notification for clinic {ClinicId}", clinicId);
             }
         }
 

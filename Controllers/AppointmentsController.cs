@@ -473,6 +473,13 @@ namespace ClinicSaaS.API.Controllers
                     savedAppointment.Id);
             }
 
+            // ✅ إشعار جرس الواجهة لموظفي العيادة — منفصل عن رسالة واتساب للمريض
+            await _notificationService.CreateAppNotification(
+                savedAppointment.ClinicId,
+                "appointment",
+                "موعد جديد",
+                $"تم إضافة موعد جديد مع {savedAppointment.Doctor?.FullName ?? savedAppointment.Patient?.FullName ?? "مريض"}");
+
             return CreatedAtAction(
                 nameof(GetById),
                 new { id = savedAppointment.Id },

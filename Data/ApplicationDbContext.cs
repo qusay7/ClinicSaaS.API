@@ -65,6 +65,7 @@ namespace ClinicSaaS.API.Data
         public DbSet<VisitNote> VisitNotes { get; set; }
         public DbSet<Absence> Absences { get; set; }
         public DbSet<NotificationLog> NotificationLogs { get; set; }
+        public DbSet<AppNotification> AppNotifications { get; set; } // ✅ إشعارات جرس الواجهة (مختلفة عن NotificationLog — هذا لواتساب)
 
         // ══ Insurance ══
         public DbSet<InsuranceCompany> InsuranceCompanies { get; set; }
@@ -995,6 +996,23 @@ namespace ClinicSaaS.API.Data
         public string? ErrorMessage { get; set; }
         public DateTime SentAt { get; set; }
          public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // إشعارات جرس الواجهة — تظهر لكل موظفي العيادة (موعد جديد، تنبيه اقتراب حد الخطة...)
+    // ══════════════════════════════════════
+    public class AppNotification : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public string Title { get; set; } = "";
+        public string Message { get; set; } = "";
+        public string Type { get; set; } = "system"; // appointment | alert | system
+        public bool IsRead { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
