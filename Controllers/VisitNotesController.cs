@@ -114,6 +114,27 @@ namespace ClinicSaaS.API.Controllers
             if (patient == null) return BadRequest("المريض غير موجود");
             if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
 
+            // ✅ حماية من التكرار — الفرونت اند يتتبع ملاحظة الزيارة الحالية بـ existingNoteId
+            // ويحوّل لـ PUT لو موجودة، لكن لو فشل ذاك التتبع لأي سبب (إعادة تحميل، تعارض
+            // توقيت...) هذا يمنع إنشاء ملاحظتين لنفس الموعد بتحديث الموجودة بدل تكرارها
+            if (dto.AppointmentId.HasValue)
+            {
+                var existing = await _db.VisitNotes.FirstOrDefaultAsync(v =>
+                    v.AppointmentId == dto.AppointmentId && v.ClinicId == _clinicContext.ClinicId && !v.IsDeleted);
+
+                if (existing != null)
+                {
+                    existing.Diagnosis = dto.Diagnosis;
+                    existing.Prescription = dto.Prescription;
+                    existing.Tests = dto.Tests;
+                    existing.Notes = dto.Notes;
+                    existing.NextVisitDate = dto.NextVisitDate;
+                    existing.Cost = dto.Cost;
+                    await _db.SaveChangesAsync();
+                    return Ok(new { existing.Id, message = "تم حفظ ملاحظات الزيارة" });
+                }
+            }
+
             var note = new VisitNote
             {
                 Id = Guid.NewGuid(),
