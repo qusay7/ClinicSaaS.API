@@ -74,7 +74,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("DoctorId");
 
-                    b.ToTable("Absences");
+                    b.ToTable("Absences", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.AppNotification", b =>
@@ -115,7 +115,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AppNotifications");
+                    b.ToTable("AppNotifications", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Appointment", b =>
@@ -217,7 +217,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("TemplateId");
 
-                    b.ToTable("Appointments");
+                    b.ToTable("Appointments", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.AppointmentVisitType", b =>
@@ -270,7 +270,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("TemplateId");
 
-                    b.ToTable("AppointmentVisitTypes");
+                    b.ToTable("AppointmentVisitTypes", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Attachment", b =>
@@ -332,7 +332,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("Attachments");
+                    b.ToTable("Attachments", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Clinic", b =>
@@ -457,7 +457,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasIndex("Subdomain")
                         .IsUnique();
 
-                    b.ToTable("Clinics");
+                    b.ToTable("Clinics", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.ClinicSchedule", b =>
@@ -494,7 +494,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("ClinicId");
 
-                    b.ToTable("ClinicSchedules");
+                    b.ToTable("ClinicSchedules", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Department", b =>
@@ -538,7 +538,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("ClinicId");
 
-                    b.ToTable("Departments");
+                    b.ToTable("Departments", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.DepartmentRole", b =>
@@ -568,7 +568,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("RoleId");
 
-                    b.ToTable("DepartmentRoles");
+                    b.ToTable("DepartmentRoles", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Doctor", b =>
@@ -632,7 +632,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Doctors");
+                    b.ToTable("Doctors", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.DoctorSchedule", b =>
@@ -680,7 +680,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("DoctorId");
 
-                    b.ToTable("DoctorSchedules");
+                    b.ToTable("DoctorSchedules", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.DoctorTemplateSetting", b =>
@@ -752,7 +752,7 @@ namespace ClinicSaaS.API.Migrations
                         .HasDatabaseName("IX_DoctorTemplateSettings_Doctor_Template")
                         .HasFilter("[TemplateId] IS NOT NULL AND [IsDeleted] = 0");
 
-                    b.ToTable("DoctorTemplateSettings");
+                    b.ToTable("DoctorTemplateSettings", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.InsuranceClaim", b =>
@@ -850,7 +850,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("SettlementId");
 
-                    b.ToTable("InsuranceClaims");
+                    b.ToTable("InsuranceClaims", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.InsuranceCompany", b =>
@@ -904,7 +904,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("ClinicId");
 
-                    b.ToTable("InsuranceCompanies");
+                    b.ToTable("InsuranceCompanies", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Invoice", b =>
@@ -1004,7 +1004,7 @@ namespace ClinicSaaS.API.Migrations
                         .IsUnique()
                         .HasFilter("[IsDeleted] = 0");
 
-                    b.ToTable("Invoices");
+                    b.ToTable("Invoices", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.InvoiceItem", b =>
@@ -1073,7 +1073,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("TemplateId");
 
-                    b.ToTable("InvoiceItems");
+                    b.ToTable("InvoiceItems", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.NotificationLog", b =>
@@ -1129,7 +1129,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("AppointmentId");
 
-                    b.ToTable("NotificationLogs");
+                    b.ToTable("NotificationLogs", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Patient", b =>
@@ -1227,62 +1227,7 @@ namespace ClinicSaaS.API.Migrations
                         .IsUnique()
                         .HasFilter("[IsDeleted] = 0");
 
-                    b.ToTable("Patients");
-                });
-
-            modelBuilder.Entity("ClinicSaaS.API.Data.PatientAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("AppointmentId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Category")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<long>("FileSize")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("FileType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("PatientId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("StoragePath")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PatientId");
-
-                    b.ToTable("PatientAttachments");
+                    b.ToTable("Patients", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.PatientInsurance", b =>
@@ -1351,7 +1296,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("PatientInsurances");
+                    b.ToTable("PatientInsurances", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.PaymentDetail", b =>
@@ -1437,7 +1382,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("PaymentDetails");
+                    b.ToTable("PaymentDetails", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Permission", b =>
@@ -1475,7 +1420,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Permissions");
+                    b.ToTable("Permissions", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Plan", b =>
@@ -1540,7 +1485,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Plans");
+                    b.ToTable("Plans", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.QueueEntry", b =>
@@ -1596,7 +1541,7 @@ namespace ClinicSaaS.API.Migrations
                         .IsUnique()
                         .HasFilter("[IsDeleted] = 0");
 
-                    b.ToTable("QueueEntries");
+                    b.ToTable("QueueEntries", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.RefreshToken", b =>
@@ -1634,7 +1579,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Role", b =>
@@ -1679,7 +1624,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Roles");
+                    b.ToTable("Roles", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.RolePermission", b =>
@@ -1715,7 +1660,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("RoleId");
 
-                    b.ToTable("RolePermissions");
+                    b.ToTable("RolePermissions", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Settlement", b =>
@@ -1787,7 +1732,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("InsuranceCompanyId");
 
-                    b.ToTable("Settlements");
+                    b.ToTable("Settlements", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Staff", b =>
@@ -1915,7 +1860,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("RoleId");
 
-                    b.ToTable("Staff");
+                    b.ToTable("Staff", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Subscription", b =>
@@ -1968,7 +1913,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("PlanId");
 
-                    b.ToTable("Subscriptions");
+                    b.ToTable("Subscriptions", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.TreatmentPlan", b =>
@@ -2044,7 +1989,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("TemplateId");
 
-                    b.ToTable("TreatmentPlans");
+                    b.ToTable("TreatmentPlans", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.TreatmentPlanTemplate", b =>
@@ -2109,7 +2054,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("DepartmentId");
 
-                    b.ToTable("TreatmentPlanTemplates");
+                    b.ToTable("TreatmentPlanTemplates", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.TreatmentSession", b =>
@@ -2168,7 +2113,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("TreatmentPlanId");
 
-                    b.ToTable("TreatmentSessions");
+                    b.ToTable("TreatmentSessions", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.User", b =>
@@ -2239,7 +2184,7 @@ namespace ClinicSaaS.API.Migrations
                         .IsUnique()
                         .HasFilter("[IsDeleted] = 0 AND [Username] IS NOT NULL");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.VisitNote", b =>
@@ -2309,7 +2254,7 @@ namespace ClinicSaaS.API.Migrations
 
                     b.HasIndex("QueueEntryId");
 
-                    b.ToTable("VisitNotes");
+                    b.ToTable("VisitNotes", (string)null);
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Absence", b =>
@@ -2638,17 +2583,6 @@ namespace ClinicSaaS.API.Migrations
                         .IsRequired();
 
                     b.Navigation("Clinic");
-                });
-
-            modelBuilder.Entity("ClinicSaaS.API.Data.PatientAttachment", b =>
-                {
-                    b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
-                        .WithMany()
-                        .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Patient");
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.PatientInsurance", b =>

@@ -2,5 +2,4 @@ bin/
 obj/
 .vs/
 uploads/
-PrivateStorage/
 appsettings.Development.json

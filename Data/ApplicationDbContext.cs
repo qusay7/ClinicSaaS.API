@@ -74,7 +74,6 @@ namespace ClinicSaaS.API.Data
         public DbSet<PaymentDetail> PaymentDetails { get; set; }
 
         public DbSet<Staff> Staff { get; set; }
-        public DbSet<PatientAttachment> PatientAttachments { get; set; }
         // ══ خطط العلاج ══
         public DbSet<TreatmentPlanTemplate> TreatmentPlanTemplates { get; set; }
         public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
@@ -1012,29 +1011,6 @@ namespace ClinicSaaS.API.Data
         public string Message { get; set; } = "";
         public string Type { get; set; } = "system"; // appointment | alert | system
         public bool IsRead { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public Guid? CreatedBy { get; set; }
-        public Guid? UpdatedBy { get; set; }
-        public DateTime? UpdatedAt { get; set; }
-    }
-
-    // ══════════════════════════════════════
-    // مرفقات المريض — صور أشعة، تحاليل، أي ملف طبي. الملف نفسه يُخزَّن خارج
-    // wwwroot (غير قابل للوصول العام) ويُقرأ فقط عبر AttachmentsController المحمي
-    // ══════════════════════════════════════
-    public class PatientAttachment : IAuditable
-    {
-        public Guid Id { get; set; }
-        public Guid ClinicId { get; set; }
-        public Guid PatientId { get; set; }
-        public Patient? Patient { get; set; }
-        public Guid? AppointmentId { get; set; }
-        public string FileName { get; set; } = "";
-        public string StoragePath { get; set; } = ""; // مسار نسبي داخل مجلد التخزين الخاص، لا رابط عام
-        public string FileType { get; set; } = "";
-        public long FileSize { get; set; }
-        public string? Category { get; set; } // xray | lab | other
-        public string? Notes { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }

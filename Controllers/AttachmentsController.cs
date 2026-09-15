@@ -7,9 +7,9 @@ using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
-    // ✅ مرفقات المريض (أشعة، تحاليل...) — الملفات تُخزَّن بمجلد خاص خارج wwwroot،
-    // فلا يوجد أي رابط عام لها؛ يُقرأ الملف فقط من هنا بعد التحقق من الصلاحية
-    // وإن المريض ينتمي لنفس عيادة المستخدم.
+    // ✅ مرفقات المريض (أشعة، تحاليل...) — الملفات تُخزَّن بمجلد "uploads/" الخاص
+    // خارج wwwroot، فلا يوجد أي رابط عام لها؛ يُقرأ الملف فقط من هنا بعد التحقق
+    // من الصلاحية وإن المريض ينتمي لنفس عيادة المستخدم.
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
@@ -32,7 +32,7 @@ namespace ClinicSaaS.API.Controllers
 
         private static string Msg(string lang, string ar, string en) => lang == "ar" ? ar : en;
 
-        private string StorageRoot => Path.Combine(_env.ContentRootPath, "PrivateStorage", "attachments");
+        private string StorageRoot => Path.Combine(_env.ContentRootPath, "uploads", "attachments");
 
         private static string ContentTypeFor(string ext) => ext switch
         {
@@ -54,8 +54,8 @@ namespace ClinicSaaS.API.Controllers
             if (patient == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && patient.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            var items = await _db.PatientAttachments
-                .Where(a => a.PatientId == patientId)
+            var items = await _db.Attachments
+                .Where(a => a.PatientId == patientId && !a.IsDeleted)
                 .OrderByDescending(a => a.CreatedAt)
                 .Select(a => new
                 {
@@ -108,14 +108,14 @@ namespace ClinicSaaS.API.Controllers
                 await file.CopyToAsync(stream);
             }
 
-            var attachment = new PatientAttachment
+            var attachment = new Attachment
             {
                 Id = Guid.NewGuid(),
                 ClinicId = clinicId,
                 PatientId = patientId,
                 AppointmentId = appointmentId,
                 FileName = file.FileName,
-                StoragePath = Path.Combine(clinicId.ToString(), storedFileName),
+                FilePath = Path.Combine(clinicId.ToString(), storedFileName),
                 FileType = ContentTypeFor(ext),
                 FileSize = file.Length,
                 Category = string.IsNullOrWhiteSpace(category) ? "other" : category,
@@ -123,7 +123,7 @@ namespace ClinicSaaS.API.Controllers
                 CreatedAt = DateTime.UtcNow,
             };
 
-            _db.PatientAttachments.Add(attachment);
+            _db.Attachments.Add(attachment);
             await _db.SaveChangesAsync();
 
             return Ok(new { id = attachment.Id, message = Msg(lang, "تم رفع الملف بنجاح", "File uploaded successfully") });
@@ -136,11 +136,11 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.HasPermission("patients.view")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
-            var attachment = await _db.PatientAttachments.FirstOrDefaultAsync(a => a.Id == id);
+            var attachment = await _db.Attachments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
             if (attachment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && attachment.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            var fullPath = Path.Combine(StorageRoot, attachment.StoragePath);
+            var fullPath = Path.Combine(StorageRoot, attachment.FilePath);
             if (!System.IO.File.Exists(fullPath)) return NotFound();
 
             var bytes = await System.IO.File.ReadAllBytesAsync(fullPath);
@@ -154,14 +154,11 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.HasPermission("patients.edit")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
-            var attachment = await _db.PatientAttachments.FirstOrDefaultAsync(a => a.Id == id);
+            var attachment = await _db.Attachments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
             if (attachment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && attachment.ClinicId != _clinicContext.ClinicId) return Forbid();
 
-            var fullPath = Path.Combine(StorageRoot, attachment.StoragePath);
-            try { if (System.IO.File.Exists(fullPath)) System.IO.File.Delete(fullPath); } catch { /* لا نفشل الحذف بسبب فشل حذف الملف الفعلي */ }
-
-            _db.PatientAttachments.Remove(attachment);
+            attachment.IsDeleted = true;
             await _db.SaveChangesAsync();
 
             return Ok(new { message = Msg(lang, "تم الحذف", "Deleted") });
