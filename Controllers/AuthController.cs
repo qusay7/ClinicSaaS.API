@@ -320,13 +320,17 @@ namespace ClinicSaaS.API.Controllers
 
     new { Name="users.view",            Module="users",         DisplayName="عرض المستخدمين",        Group="المستخدمون"   },
     new { Name="users.create",          Module="users",         DisplayName="إضافة مستخدم",          Group="المستخدمون"   },
+    new { Name="users.toggle",          Module="users",         DisplayName="تفعيل/تعطيل مستخدم",     Group="المستخدمون"   },
 
     new { Name="departments.manage",    Module="departments",   DisplayName="إدارة الأقسام",          Group="الأقسام"       },
 
     new { Name="settings.view",         Module="settings",      DisplayName="عرض الإعدادات",          Group="الإعدادات"     },
     new { Name="settings.edit",         Module="settings",      DisplayName="تعديل الإعدادات",        Group="الإعدادات"     },
 
+    new { Name="subscription.view",     Module="subscription",  DisplayName="عرض الباقة الحالية",     Group="الباقة"       },
+
     new { Name="reports.view",          Module="reports",       DisplayName="عرض التقارير",          Group="التقارير"     },
+    new { Name="reports.export",        Module="reports",       DisplayName="تصدير البيانات (طباعة/PDF/Excel)", Group="التقارير" },
 
     new { Name="insurance.view",        Module="insurance",     DisplayName="عرض التأمين الصحي",     Group="التأمين"      },
     new { Name="insurance.manage",      Module="insurance",     DisplayName="إدارة التأمين الصحي",   Group="التأمين"      },
@@ -338,6 +342,7 @@ namespace ClinicSaaS.API.Controllers
 
     new { Name="staff.view",            Module="staff",         DisplayName="فريق العمل",            Group="فريق العمل"   },
     new { Name="staff.manage",          Module="staff",         DisplayName="إدارة فريق العمل",      Group="فريق العمل"   },
+    new { Name="staff.viewsalary",      Module="staff",         DisplayName="عرض الراتب",            Group="فريق العمل"   },
 
     new { Name="queue.manage",          Module="queue",         DisplayName="إدارة الطابور",         Group="الطابور"      },
 

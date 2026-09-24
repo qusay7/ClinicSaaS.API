@@ -76,7 +76,7 @@ namespace ClinicSaaS.API.Controllers
 
         // POST: api/attachments/upload
         [HttpPost("upload")]
-        public async Task<ActionResult> Upload([FromForm] IFormFile file, [FromForm] Guid patientId,
+        public async Task<ActionResult> Upload(IFormFile file, [FromForm] Guid patientId,
             [FromForm] string? category, [FromForm] Guid? appointmentId, [FromForm] string? notes,
             [FromQuery] string lang = "ar")
         {
