@@ -588,6 +588,12 @@ namespace ClinicSaaS.API.Data
         // ✅ "12" أو "24" — تفضيل عرض الوقت (12 ساعة AM/PM أو 24 ساعة)، قابل للتعديل من الإعدادات
         public string TimeFormat { get; set; } = "24";
 
+        // ✅ بلد العيادة (رمز ISO مثل "JO"، "PS"...) وعملتها (رمز مثل "JOD") — تتحكم
+        // بعملة عرض الأسعار بكل النظام، وبإظهار زر ترحيل الفوترة الإلكترونية
+        // (خاص بالأردن/JoFotara فقط) من عدمه
+        public string Country { get; set; } = "JO";
+        public string Currency { get; set; } = "JOD";
+
         // ✅ متى تُرسَل رسائل واتساب تلقائياً — كل مفتاح مستقل وقابل للتعديل من الإعدادات
         public bool NotifyOnCreate { get; set; } = true;
         public bool NotifyOnEdit { get; set; } = true;

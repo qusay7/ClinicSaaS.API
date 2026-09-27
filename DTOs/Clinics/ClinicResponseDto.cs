@@ -22,6 +22,8 @@
         public DateTime CreatedAt { get; set; }
         public string? TimeZone { get; set; }
         public string? TimeFormat { get; set; }
+        public string? Country { get; set; }
+        public string? Currency { get; set; }
         public bool NotifyOnCreate { get; set; }
         public bool NotifyOnEdit { get; set; }
         public bool NotifyOnCancel { get; set; }

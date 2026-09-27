@@ -121,6 +121,14 @@ namespace ClinicSaaS.API.Controllers
                 TimeZone = string.IsNullOrWhiteSpace(dto.TimeZone) ? "Asia/Amman" : dto.TimeZone,
             };
 
+            // ✅ العملة تُشتَق من البلد دائماً على السيرفر — لا نثق بعملة يرسلها العميل
+            // بمعزل عن البلد، حتى لا يتعارضا (مثلاً بلد أردن مع عملة سعودية)
+            if (!string.IsNullOrWhiteSpace(dto.Country) && CountryCurrencyMap.TryGetValue(dto.Country, out var newClinicCurrency))
+            {
+                clinic.Country = dto.Country;
+                clinic.Currency = newClinicCurrency;
+            }
+
             _db.Clinics.Add(clinic);
 
             // ✅ يمسك تعارض الـ Subdomain على مستوى قاعدة البيانات (حماية من التصادم اللحظي)
@@ -214,11 +222,31 @@ namespace ClinicSaaS.API.Controllers
             clinic.NotifyBefore12h = dto.NotifyBefore12h;
             clinic.NotifyBefore1h = dto.NotifyBefore1h;
 
+            // ✅ العملة تُشتَق من البلد دائماً على السيرفر (لا نثق بعملة منفصلة من العميل)
+            if (!string.IsNullOrWhiteSpace(dto.Country))
+            {
+                if (!CountryCurrencyMap.TryGetValue(dto.Country, out var updatedCurrency))
+                    return BadRequest("Invalid country code.");
+                clinic.Country = dto.Country;
+                clinic.Currency = updatedCurrency;
+            }
+
             await _db.SaveChangesAsync();
             return Ok(ToResponse(clinic));
 
 
         }
+
+        // ✅ البلدان المدعومة وعملة كل بلد — العملة تُشتَق من البلد دائماً، لا تُختار بمعزل عنه
+        private static readonly Dictionary<string, string> CountryCurrencyMap = new()
+        {
+            ["JO"] = "JOD", // الأردن — دينار أردني
+            ["PS"] = "ILS", // فلسطين — شيكل
+            ["SA"] = "SAR", // السعودية — ريال سعودي
+            ["SY"] = "SYP", // سوريا — ليرة سورية
+            ["LB"] = "LBP", // لبنان — ليرة لبنانية
+            ["AE"] = "AED", // الإمارات — درهم إماراتي
+        };
 
         // ✅ POST: api/clinics/{id}/logo
         // رفع/تحديث شعار العيادة — يُخزَّن بمجلد wwwroot عام (بدون توثيق للعرض) لأنه
@@ -322,6 +350,8 @@ namespace ClinicSaaS.API.Controllers
             CreatedAt = c.CreatedAt,
             TimeZone = c.TimeZone,   // ✅ جديد
             TimeFormat = c.TimeFormat,
+            Country = c.Country,
+            Currency = c.Currency,
             NotifyOnCreate = c.NotifyOnCreate,
             NotifyOnEdit = c.NotifyOnEdit,
             NotifyOnCancel = c.NotifyOnCancel,

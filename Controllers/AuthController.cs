@@ -165,6 +165,8 @@ namespace ClinicSaaS.API.Controllers
                 ClinicId = user.ClinicId,
                 ClinicName = user.Clinic?.Name,
                 TimeFormat = user.Clinic?.TimeFormat,
+                Country = user.Clinic?.Country,
+                Currency = user.Clinic?.Currency,
                 Permissions = permissions, // ✅ جديد
                 ExpiresAt = DateTime.UtcNow.AddDays(7),
                 RefreshTokenExpiresAt = refreshToken.ExpiresAt,
@@ -213,6 +215,8 @@ namespace ClinicSaaS.API.Controllers
                 ClinicId = refreshToken.User.ClinicId,
                 ClinicName = refreshToken.User.Clinic?.Name,
                 TimeFormat = refreshToken.User.Clinic?.TimeFormat,
+                Country = refreshToken.User.Clinic?.Country,
+                Currency = refreshToken.User.Clinic?.Currency,
                 Permissions = permissions, // ✅ جديد
                 ExpiresAt = DateTime.UtcNow.AddDays(7),
                 RefreshTokenExpiresAt = newRefreshToken.ExpiresAt,

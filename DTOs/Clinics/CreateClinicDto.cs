@@ -18,5 +18,7 @@
         public string? InvoiceKey { get; set; }
         public string? Description { get; set; }
         public string? TimeZone { get; set; }
+        public string? Country { get; set; }
+        public string? Currency { get; set; }
     }
 }

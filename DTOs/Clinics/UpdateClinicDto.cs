@@ -14,6 +14,8 @@
         public string? TaxNumber { get; set; }
         public string? TimeZone { get; set; }
         public string? TimeFormat { get; set; }
+        public string? Country { get; set; }
+        public string? Currency { get; set; }
         public bool NotifyOnCreate { get; set; } = true;
         public bool NotifyOnEdit { get; set; } = true;
         public bool NotifyOnCancel { get; set; } = true;
