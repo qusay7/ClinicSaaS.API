@@ -1,8 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════════
-# نشر الباك اند: إيقاف الـ service، سحب آخر كود، بناء، تطبيق أي migration
-# معلّقة، وإعادة التشغيل — مع توقف فوري عند أول خطأ (بدل ما نكمل بكود قديم
-# مبني جزئياً أو قاعدة بيانات نص محدّثة، هذا بالضبط اللي سبب أزمة يوم 2026-09-27)
-# الاستخدام: افتح PowerShell كـ Administrator بهاد المجلد وشغّل: .\deploy.ps1
+# Backend deploy: stop service, pull latest, build, apply pending migrations,
+# restart, health-check. Stops immediately on any failure instead of leaving
+# the service half-updated (that's exactly what caused the 2026-09-27 outage).
+# Usage: open PowerShell as Administrator in this folder and run: .\deploy.ps1
 # ══════════════════════════════════════════════════════════════════════════
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -11,44 +11,44 @@ $healthUrl = 'http://192.168.194.59:5192/api/version'
 
 function Step($msg) { Write-Host "`n== $msg ==" -ForegroundColor Cyan }
 
-Step "إيقاف الـ service"
+Step "Stopping service"
 Stop-Service $serviceName -Force -ErrorAction SilentlyContinue
 Get-Process ClinicSaaS.API -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 
-Step "سحب آخر كود من main"
+Step "Pulling latest code from main"
 Set-Location $root
 git pull origin main
 
-Step "بناء المشروع (Release)"
+Step "Building (Release)"
 dotnet build "$root\ClinicSaaS.API.csproj" -c Release
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "`n❌ فشل البناء — توقفنا هون عمداً. الـ service لسا واقف، ما رح نشغّله بكود مكسور." -ForegroundColor Red
+    Write-Host "`nBUILD FAILED - stopping here on purpose. Service stays down, not restarted with broken code." -ForegroundColor Red
     exit 1
 }
 
-Step "تطبيق أي migration معلّقة على قاعدة البيانات الحقيقية"
-# ✅ نحدد البيئة صراحة (نفس بيئة الـ service الفعلية) عشان نضمن قراءة
-# appsettings.Development.json الصحيح، لا الرجوع لأي fallback مختلف
+Step "Applying any pending migrations to the real database"
+# Explicitly match the service's real environment so we read the correct
+# appsettings.Development.json instead of falling back to something else.
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 dotnet ef database update
 $migrateExit = $LASTEXITCODE
 Remove-Item Env:\ASPNETCORE_ENVIRONMENT
 if ($migrateExit -ne 0) {
-    Write-Host "`n❌ فشل تطبيق الـ migration — راجع الخطأ فوق. الـ service لسا واقف عمداً." -ForegroundColor Red
+    Write-Host "`nMIGRATION FAILED - check the error above. Service stays down on purpose." -ForegroundColor Red
     exit 1
 }
 
-Step "تشغيل الـ service"
+Step "Starting service"
 Start-Service $serviceName
 Start-Sleep -Seconds 3
 
-Step "فحص الصحة"
+Step "Health check"
 try {
     $resp = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 8
-    Write-Host "✅ الـ API شغال — commit المنشور: $($resp.commit)" -ForegroundColor Green
+    Write-Host "OK - API is up, deployed commit: $($resp.commit)" -ForegroundColor Green
 } catch {
-    Write-Host "❌ الـ API ما رد على $healthUrl — افحص اللوغ فوراً:" -ForegroundColor Red
+    Write-Host "FAILED - API did not respond at $healthUrl. Check the log now:" -ForegroundColor Red
     Get-Content "$root\stderr.log" -Tail 25
     exit 1
 }
