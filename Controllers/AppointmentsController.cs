@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ClinicSaaS.API.Filters;
+using System.Linq;
 
 
 
@@ -460,9 +461,11 @@ namespace ClinicSaaS.API.Controllers
                 return StatusCode(500, "Failed to load created appointment");
 
             // إرسال إشعار التأكيد بدون التأثير على نجاح إنشاء الموعد
+            // (SkipNotification: تُستخدم عند حجز عدة جلسات دفعة وحدة من قالب علاج،
+            // حيث نرسل رسالة واحدة مجمّعة لاحقاً بدل رسالة منفردة لكل جلسة)
             try
             {
-                if (_clinicContext.NotifyOnCreate)
+                if (_clinicContext.NotifyOnCreate && !dto.SkipNotification)
                     await _notificationService.SendAppointmentConfirmation(savedAppointment);
             }
             catch (Exception ex)
@@ -484,6 +487,37 @@ namespace ClinicSaaS.API.Controllers
                 nameof(GetById),
                 new { id = savedAppointment.Id },
                 ToResponse(savedAppointment));
+        }
+
+        // ✅ رسالة تأكيد واحدة مجمّعة لكل جلسات قالب علاج تم حجزها دفعة وحدة —
+        // تُستدعى بعد إنشاء كل المواعيد (كل واحد منها بـ SkipNotification=true)
+        // بدل ما يوصل المريض رسالة منفردة لكل جلسة
+        [HttpPost("notify-multi-session")]
+        public async Task<IActionResult> NotifyMultiSession([FromBody] NotifyMultiSessionDto dto)
+        {
+            if (!_clinicContext.HasPermission("appointments.create"))
+                return Forbid();
+
+            if (_clinicContext.ClinicId == null)
+                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+
+            if (!_clinicContext.NotifyOnCreate || dto.Sessions == null || dto.Sessions.Count == 0)
+                return NoContent();
+
+            try
+            {
+                await _notificationService.SendMultiSessionConfirmation(
+                    dto.PatientId,
+                    _clinicContext.ClinicId.Value,
+                    dto.TemplateName,
+                    dto.Sessions.Select(s => (s.AppointmentId, s.SessionNumber, s.AppointmentDate)).ToList());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send multi-session confirmation for patient {PatientId}", dto.PatientId);
+            }
+
+            return NoContent();
         }
 
         // ═══════════════════════════════════════════════════════════════════════════

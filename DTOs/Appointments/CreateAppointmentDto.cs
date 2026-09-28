@@ -18,6 +18,11 @@ namespace ClinicSaaS.API.DTOs.Appointments
         public string? Notes3 { get; set; }
         public string? Lang { get; set; }
         public Guid? TemplateId { get; set; }
+
+        // ✅ تُستخدم عند حجز عدة جلسات دفعة وحدة من قالب علاج — نحجز كل المواعيد
+        // بدون رسالة تأكيد منفردة لكل وحدة، وبعدين نرسل رسالة واحدة مجمّعة لكل
+        // الجلسات (بدل ما يوصل المريض دفعة رسائل صعبة القراءة)
+        public bool SkipNotification { get; set; } = false;
     }
 
     // ✅ Converter يقبل كل الصيغ

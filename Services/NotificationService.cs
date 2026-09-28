@@ -1,5 +1,6 @@
 using ClinicSaaS.API.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Linq;
 using System.Text.Json;
 
 namespace ClinicSaaS.API.Services
@@ -10,6 +11,7 @@ namespace ClinicSaaS.API.Services
         Task<bool> SendSms(string toPhone, string message, Guid clinicId);
 
         Task SendAppointmentConfirmation(Appointment appointment);
+        Task SendMultiSessionConfirmation(Guid patientId, Guid clinicId, string templateName, List<(Guid AppointmentId, int SessionNumber, DateTime AppointmentDate)> sessions);
         Task SendAppointmentCancellation(Appointment appointment);
         Task SendAppointmentUpdate(Appointment appointment);
 
@@ -381,6 +383,74 @@ namespace ClinicSaaS.API.Services
                     ex,
                     "❌ Error in SendAppointmentConfirmation for Appointment {AppointmentId}",
                     appointment?.Id);
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // 1️⃣-ب تأكيد حجز عدة جلسات دفعة وحدة (قالب علاج متعدد الجلسات) —
+        // رسالة واحدة مجمّعة بدل رسالة منفردة لكل جلسة، لتسهيل القراءة على
+        // المريض. التواريخ هون مبدئية فقط ويمكن تعديل أي جلسة لاحقاً كأي
+        // موعد عادي — لا نُلزم المريض فيها من الزيارة الأولى
+        // ══════════════════════════════════════════════════════
+
+        public async Task SendMultiSessionConfirmation(
+            Guid patientId,
+            Guid clinicId,
+            string templateName,
+            List<(Guid AppointmentId, int SessionNumber, DateTime AppointmentDate)> sessions)
+        {
+            try
+            {
+                if (sessions == null || sessions.Count == 0)
+                    return;
+
+                var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == patientId);
+                if (patient == null || string.IsNullOrWhiteSpace(patient.Phone))
+                    return;
+
+                var clinic = await _db.Clinics.FirstOrDefaultAsync(c => c.Id == clinicId);
+
+                var ordered = sessions.OrderBy(s => s.SessionNumber).ToList();
+                var sessionsList = string.Join("\n", ordered.Select(s =>
+                {
+                    var local = ToJordanTime(s.AppointmentDate);
+                    return $"جلسة {s.SessionNumber}: {local:dd/MM/yyyy} - {local:hh:mm tt}";
+                }));
+
+                var msg = $"""
+                    🏥 *{clinic?.Name ?? "العيادة"}*
+
+                    مرحباً {patient.FullName}،
+
+                    تم حجز خطة علاج "{templateName}" ({ordered.Count} جلسات) ✅
+
+                    {sessionsList}
+
+                    ⚠️ هذه مواعيد مبدئية، ويمكن تعديل أي جلسة لاحقاً حسب ظروفكم — تواصلوا معنا لأي تغيير.
+
+                    نراك قريباً 🌟
+                    """;
+
+                var phone = NormalizePhone(patient.Phone);
+                var success = await SendWhatsApp(phone, msg, clinicId);
+
+                if (success)
+                {
+                    await LogNotification(
+                        ordered[0].AppointmentId,
+                        clinicId,
+                        patientId,
+                        "confirmation",
+                        phone,
+                        msg);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "❌ Error in SendMultiSessionConfirmation for Patient {PatientId}",
+                    patientId);
             }
         }
 
