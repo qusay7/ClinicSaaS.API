@@ -85,6 +85,10 @@ namespace ClinicSaaS.API.Data
         public DbSet<Invoice> Invoices { get; set; }
         public DbSet<InvoiceItem> InvoiceItems { get; set; }
 
+        // ══ اقتراحات التشخيص/الأدوية (كل عيادة تبني قائمتها الخاصة) ══
+        public DbSet<DiagnosisTemplate> DiagnosisTemplates { get; set; }
+        public DbSet<DiagnosisMedication> DiagnosisMedications { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -283,6 +287,11 @@ namespace ClinicSaaS.API.Data
                 e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
             });
 
+            // ✅ أدوية مقترحة لكل قالب تشخيص — تُحذف مع القالب (replace-all عند التعديل)
+            modelBuilder.Entity<DiagnosisMedication>(e => {
+                e.HasOne(x => x.DiagnosisTemplate).WithMany(t => t.Medications).HasForeignKey(x => x.DiagnosisTemplateId).OnDelete(DeleteBehavior.Cascade);
+            });
+
             // ✅ إعدادات الطبيب المالية (سعر خاص + حصة) لكل قالب
             modelBuilder.Entity<DoctorTemplateSetting>(e => {
                 e.HasKey(x => x.Id);
@@ -342,6 +351,7 @@ namespace ClinicSaaS.API.Data
 
             // Soft Delete
             modelBuilder.Entity<TreatmentPlanTemplate>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<DiagnosisTemplate>().HasQueryFilter(x => !x.IsDeleted);
             modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(x => !x.IsDeleted);
             modelBuilder.Entity<TreatmentSession>().HasQueryFilter(x => !x.IsDeleted);
 
@@ -1265,6 +1275,38 @@ namespace ClinicSaaS.API.Data
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // اقتراحات التشخيص → الأدوية (تبنيها كل عيادة بنفسها من ممارستها الفعلية —
+    // لا نعبّئ محتوى طبي جاهز، وهذا مش تشخيص تلقائي، الطبيب يبقى هو القرار الأخير)
+    // ══════════════════════════════════════
+    public class DiagnosisTemplate : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public string Name { get; set; } = "";          // "التهاب الحلق"
+        public bool IsActive { get; set; } = true;
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+        public List<DiagnosisMedication> Medications { get; set; } = new();
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    public class DiagnosisMedication
+    {
+        public Guid Id { get; set; }
+        public Guid DiagnosisTemplateId { get; set; }
+        public string DrugName { get; set; } = "";       // "Augmentin 625mg"
+        public string? Instructions { get; set; }        // "كل 12 ساعة لمدة 7 أيام"
+        public int SortOrder { get; set; } = 0;
+
+        public DiagnosisTemplate? DiagnosisTemplate { get; set; }
     }
 
     // ══════════════════════════════════════
