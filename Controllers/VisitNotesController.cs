@@ -55,6 +55,10 @@ namespace ClinicSaaS.API.Controllers
                 v.Notes,
                 v.NextVisitDate,
                 v.Cost,
+                v.BloodPressure,
+                v.BloodSugar,
+                v.HeartRate,
+                v.RespiratoryRate,
                 v.CreatedAt,
                 doctorName = v.Doctor?.FullName,
                 appointmentDate = v.Appointment?.AppointmentDate,
@@ -94,6 +98,10 @@ namespace ClinicSaaS.API.Controllers
                 note.Notes,
                 note.NextVisitDate,
                 note.Cost,
+                note.BloodPressure,
+                note.BloodSugar,
+                note.HeartRate,
+                note.RespiratoryRate,
                 note.CreatedAt,
                 doctorName = note.Doctor?.FullName,
             });
@@ -130,6 +138,10 @@ namespace ClinicSaaS.API.Controllers
                     existing.Notes = dto.Notes;
                     existing.NextVisitDate = dto.NextVisitDate;
                     existing.Cost = dto.Cost;
+                    existing.BloodPressure = dto.BloodPressure;
+                    existing.BloodSugar = dto.BloodSugar;
+                    existing.HeartRate = dto.HeartRate;
+                    existing.RespiratoryRate = dto.RespiratoryRate;
                     await _db.SaveChangesAsync();
                     return Ok(new { existing.Id, message = "تم حفظ ملاحظات الزيارة" });
                 }
@@ -149,6 +161,10 @@ namespace ClinicSaaS.API.Controllers
                 Notes = dto.Notes,
                 NextVisitDate = dto.NextVisitDate,
                 Cost = dto.Cost,
+                BloodPressure = dto.BloodPressure,
+                BloodSugar = dto.BloodSugar,
+                HeartRate = dto.HeartRate,
+                RespiratoryRate = dto.RespiratoryRate,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -181,6 +197,10 @@ namespace ClinicSaaS.API.Controllers
             note.Notes = dto.Notes;
             note.NextVisitDate = dto.NextVisitDate;
             note.Cost = dto.Cost;
+            note.BloodPressure = dto.BloodPressure;
+            note.BloodSugar = dto.BloodSugar;
+            note.HeartRate = dto.HeartRate;
+            note.RespiratoryRate = dto.RespiratoryRate;
 
             await _db.SaveChangesAsync();
 
@@ -200,5 +220,9 @@ namespace ClinicSaaS.API.Controllers
         public string? Notes { get; set; }
         public DateTime? NextVisitDate { get; set; }
         public decimal? Cost { get; set; }
+        public string? BloodPressure { get; set; }
+        public decimal? BloodSugar { get; set; }
+        public int? HeartRate { get; set; }
+        public int? RespiratoryRate { get; set; }
     }
 }

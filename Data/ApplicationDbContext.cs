@@ -409,6 +409,7 @@ namespace ClinicSaaS.API.Data
             modelBuilder.Entity<Plan>().Property(x => x.YearlyPrice).HasPrecision(10, 3);
             modelBuilder.Entity<Subscription>().Property(x => x.PricePaid).HasPrecision(10, 3);
             modelBuilder.Entity<VisitNote>().Property(x => x.Cost).HasPrecision(10, 3);
+            modelBuilder.Entity<VisitNote>().Property(x => x.BloodSugar).HasPrecision(5, 1);
             modelBuilder.Entity<TreatmentPlanTemplate>().Property(x => x.FirstVisitPrice).HasPrecision(10, 3);
             modelBuilder.Entity<TreatmentPlanTemplate>().Property(x => x.FollowUpPrice).HasPrecision(10, 3);
             // بـ OnModelCreating
@@ -959,6 +960,12 @@ namespace ClinicSaaS.API.Data
         public string? Notes { get; set; }
         public DateTime? NextVisitDate { get; set; }
         public decimal? Cost { get; set; }
+
+        // ✅ العلامات الحيوية — مفيدة وقت مراجعة سجل المريض بزيارات سابقة
+        public string? BloodPressure { get; set; }   // "120/80"
+        public decimal? BloodSugar { get; set; }     // mg/dL
+        public int? HeartRate { get; set; }          // نبضة/دقيقة
+        public int? RespiratoryRate { get; set; }     // نفس/دقيقة
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public bool IsDeleted { get; set; } = false;
