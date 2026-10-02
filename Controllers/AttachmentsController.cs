@@ -16,7 +16,8 @@ namespace ClinicSaaS.API.Controllers
     [RequireActiveSubscription]
     public class AttachmentsController : ControllerBase
     {
-        private static readonly string[] AllowedExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".pdf" };
+        // ✅ أضفنا صيغ صوتية لدعم تسجيل الملاحظات الصوتية (بدون تحويل تلقائي لنص بعد)
+        private static readonly string[] AllowedExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".pdf", ".webm", ".ogg", ".mp3", ".wav" };
         private const long MaxFileSizeBytes = 20 * 1024 * 1024; // 20 MB
 
         private readonly ApplicationDbContext _db;
@@ -40,6 +41,10 @@ namespace ClinicSaaS.API.Controllers
             ".png" => "image/png",
             ".webp" => "image/webp",
             ".pdf" => "application/pdf",
+            ".webm" => "audio/webm",
+            ".ogg" => "audio/ogg",
+            ".mp3" => "audio/mpeg",
+            ".wav" => "audio/wav",
             _ => "application/octet-stream",
         };
 
@@ -68,6 +73,7 @@ namespace ClinicSaaS.API.Controllers
                     createdAt = a.CreatedAt,
                     appointmentId = a.AppointmentId,
                     isImage = a.FileType.StartsWith("image/"),
+                    isAudio = a.FileType.StartsWith("audio/"),
                 })
                 .ToListAsync();
 

@@ -967,6 +967,10 @@ namespace ClinicSaaS.API.Data
         public int? HeartRate { get; set; }          // نبضة/دقيقة
         public int? RespiratoryRate { get; set; }     // نفس/دقيقة
 
+        // ✅ إضافة الطبيب الحرة لتقرير حالة المريض — منفصلة عن Notes، تُعرض
+        // جنب البيانات المجمّعة تلقائياً (تشخيص/وصفة/علامات حيوية) بتقرير الحالة
+        public string? ReportNotes { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public bool IsDeleted { get; set; } = false;
 

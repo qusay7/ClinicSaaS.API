@@ -59,6 +59,7 @@ namespace ClinicSaaS.API.Controllers
                 v.BloodSugar,
                 v.HeartRate,
                 v.RespiratoryRate,
+                v.ReportNotes,
                 v.CreatedAt,
                 doctorName = v.Doctor?.FullName,
                 appointmentDate = v.Appointment?.AppointmentDate,
@@ -102,6 +103,7 @@ namespace ClinicSaaS.API.Controllers
                 note.BloodSugar,
                 note.HeartRate,
                 note.RespiratoryRate,
+                note.ReportNotes,
                 note.CreatedAt,
                 doctorName = note.Doctor?.FullName,
             });
@@ -142,6 +144,7 @@ namespace ClinicSaaS.API.Controllers
                     existing.BloodSugar = dto.BloodSugar;
                     existing.HeartRate = dto.HeartRate;
                     existing.RespiratoryRate = dto.RespiratoryRate;
+                    existing.ReportNotes = dto.ReportNotes;
                     await _db.SaveChangesAsync();
                     return Ok(new { existing.Id, message = "تم حفظ ملاحظات الزيارة" });
                 }
@@ -165,6 +168,7 @@ namespace ClinicSaaS.API.Controllers
                 BloodSugar = dto.BloodSugar,
                 HeartRate = dto.HeartRate,
                 RespiratoryRate = dto.RespiratoryRate,
+                ReportNotes = dto.ReportNotes,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -201,6 +205,7 @@ namespace ClinicSaaS.API.Controllers
             note.BloodSugar = dto.BloodSugar;
             note.HeartRate = dto.HeartRate;
             note.RespiratoryRate = dto.RespiratoryRate;
+            note.ReportNotes = dto.ReportNotes;
 
             await _db.SaveChangesAsync();
 
@@ -224,5 +229,6 @@ namespace ClinicSaaS.API.Controllers
         public decimal? BloodSugar { get; set; }
         public int? HeartRate { get; set; }
         public int? RespiratoryRate { get; set; }
+        public string? ReportNotes { get; set; }
     }
 }
