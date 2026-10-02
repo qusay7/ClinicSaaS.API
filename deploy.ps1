@@ -19,6 +19,11 @@ Start-Sleep -Seconds 1
 Step "Pulling latest code from main"
 Set-Location $root
 git pull origin main
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`nGIT PULL FAILED - stopping here. The server likely still has uncommitted local changes (check 'git status'). Deploying now would silently rebuild the OLD code." -ForegroundColor Red
+    exit 1
+}
+Write-Host "Now at commit: $(git rev-parse --short HEAD)" -ForegroundColor DarkGray
 
 Step "Building (Release)"
 dotnet build "$root\ClinicSaaS.API.csproj" -c Release
