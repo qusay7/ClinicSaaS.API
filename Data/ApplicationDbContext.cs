@@ -89,6 +89,10 @@ namespace ClinicSaaS.API.Data
         public DbSet<DiagnosisTemplate> DiagnosisTemplates { get; set; }
         public DbSet<DiagnosisMedication> DiagnosisMedications { get; set; }
 
+        // ══ كتالوج الإجراءات + استخدامها الفعلي بالزيارات (موعد أو طوارئ) ══
+        public DbSet<Procedure> Procedures { get; set; }
+        public DbSet<VisitProcedureItem> VisitProcedureItems { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -292,6 +296,21 @@ namespace ClinicSaaS.API.Data
                 e.HasOne(x => x.DiagnosisTemplate).WithMany(t => t.Medications).HasForeignKey(x => x.DiagnosisTemplateId).OnDelete(DeleteBehavior.Cascade);
             });
 
+            // ✅ إجراء مرتبط بموعد أو حالة طوارئ (الاثنين Nullable) — Restrict لكل
+            // المفاتيح الخارجية هون تفادياً لتعارض مسارات Cascade المتعددة
+            modelBuilder.Entity<VisitProcedureItem>(e => {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Price).HasPrecision(10, 3);
+                e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.QueueEntry).WithMany().HasForeignKey(x => x.QueueEntryId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Procedure).WithMany().HasForeignKey(x => x.ProcedureId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Doctor).WithMany().HasForeignKey(x => x.DoctorId).OnDelete(DeleteBehavior.Restrict);
+            });
+            modelBuilder.Entity<Procedure>().Property(x => x.DefaultPrice).HasPrecision(10, 3);
+            modelBuilder.Entity<QueueEntry>().Property(x => x.Price).HasPrecision(10, 3);
+            modelBuilder.Entity<QueueEntry>().Property(x => x.AmountPaid).HasPrecision(10, 3);
+            modelBuilder.Entity<QueueEntry>().HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+
             // ✅ إعدادات الطبيب المالية (سعر خاص + حصة) لكل قالب
             modelBuilder.Entity<DoctorTemplateSetting>(e => {
                 e.HasKey(x => x.Id);
@@ -352,6 +371,7 @@ namespace ClinicSaaS.API.Data
             // Soft Delete
             modelBuilder.Entity<TreatmentPlanTemplate>().HasQueryFilter(x => !x.IsDeleted);
             modelBuilder.Entity<DiagnosisTemplate>().HasQueryFilter(x => !x.IsDeleted);
+            modelBuilder.Entity<Procedure>().HasQueryFilter(x => !x.IsDeleted);
             modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(x => !x.IsDeleted);
             modelBuilder.Entity<TreatmentSession>().HasQueryFilter(x => !x.IsDeleted);
 
@@ -908,6 +928,18 @@ namespace ClinicSaaS.API.Data
         public DateTime Date { get; set; }
         public string Status { get; set; } = "waiting";
         public string? Notes { get; set; }
+
+        // ✅ طوارئ: ربط بقسم الطوارئ (لعرضها بلوحة الطبيب المناوب)، وتتبّع
+        // سعر/دفع مبسّط خاص بالطوارئ (منفصل عن نظام الفواتير الأساسي المبني
+        // حول المواعيد فقط)، وتوثيق الخروج (مين وقتيش)
+        public Guid? DepartmentId { get; set; }
+        public Department? Department { get; set; }
+        public decimal? Price { get; set; }
+        public decimal? AmountPaid { get; set; }
+        public bool IsPaid { get; set; } = false;
+        public DateTime? DischargedAt { get; set; }
+        public Guid? DischargedBy { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public bool IsDeleted { get; set; } = false;
         public Guid? CreatedBy { get; set; }
@@ -1445,6 +1477,49 @@ namespace ClinicSaaS.API.Data
         public DateTime? UpdatedAt { get; set; }
     }
 
+    // ══════════════════════════════════════
+    // كتالوج الإجراءات (حقنة، بنج، دواء...) — يحدده صاحب العيادة/المسؤول
+    // بسعر افتراضي، ويضيفها الطبيب لأي زيارة (موعد أو طوارئ)
+    // ══════════════════════════════════════
+    public class Procedure : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public string Name { get; set; } = "";
+        public string? NameEn { get; set; }
+        public decimal? DefaultPrice { get; set; }
+        public bool IsActive { get; set; } = true;
+        public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Clinic? Clinic { get; set; }
+
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // إجراء فعلي تم إضافته لزيارة معيّنة (موعد أو حالة طوارئ) — السعر قابل
+    // للتعديل/التصفير من الطبيب وقت الإضافة، مستقل عن السعر الافتراضي بالكتالوج
+    // ══════════════════════════════════════
+    public class VisitProcedureItem
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid? AppointmentId { get; set; }
+        public Guid? QueueEntryId { get; set; }
+        public Guid? ProcedureId { get; set; }   // nullable — يضل السجل حتى لو حُذف الإجراء من الكتالوج لاحقاً
+        public string Name { get; set; } = "";   // نسخة من الاسم وقت الإضافة
+        public decimal? Price { get; set; }
+        public Guid? DoctorId { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public Appointment? Appointment { get; set; }
+        public QueueEntry? QueueEntry { get; set; }
+        public Procedure? Procedure { get; set; }
+        public Doctor? Doctor { get; set; }
+    }
 
     // ══════════════════════════════════════
     // الفاتورة الضريبية — 388 فاتورة بيع، 381 إشعار دائن (مرتجع)

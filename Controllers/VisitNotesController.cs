@@ -109,6 +109,40 @@ namespace ClinicSaaS.API.Controllers
             });
         }
 
+        // ✅ GET: api/visitnotes/queue/{queueEntryId}/timeline — كل السجلات
+        // (قراءات/تشخيص/إجراءات) لحالة طوارئ معيّنة، بالأحدث أول — هذا هو "التبديل
+        // بين الأطباء" الفعلي: كل سجل بيحمل اسم الطبيب ووقته لحاله، بدون upsert
+        [HttpGet("queue/{queueEntryId}/timeline")]
+        public async Task<ActionResult> GetQueueTimeline(Guid queueEntryId)
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var notes = await _db.VisitNotes
+                .Where(v => v.QueueEntryId == queueEntryId
+                    && v.ClinicId == _clinicContext.ClinicId
+                    && !v.IsDeleted)
+                .Include(v => v.Doctor)
+                .OrderByDescending(v => v.CreatedAt)
+                .Select(v => new
+                {
+                    v.Id,
+                    v.Diagnosis,
+                    v.Prescription,
+                    v.Tests,
+                    v.Notes,
+                    v.BloodPressure,
+                    v.BloodSugar,
+                    v.HeartRate,
+                    v.RespiratoryRate,
+                    v.ReportNotes,
+                    v.CreatedAt,
+                    doctorName = v.Doctor == null ? null : v.Doctor.FullName,
+                })
+                .ToListAsync();
+
+            return Ok(notes);
+        }
+
         // POST: api/visitnotes
         // إضافة ملاحظة زيارة
         // POST: api/visitnotes

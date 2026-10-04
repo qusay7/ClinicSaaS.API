@@ -1007,6 +1007,95 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(items);
         }
+
+        // ✅ إجراءات الزيارة (حقنة/بنج/دواء...) — تُضاف واحداً واحداً (مش replace-all
+        // زي أنواع الزيارة)، وسعر الموعد الكلي = بنود الزيارة + الإجراءات مجتمعة
+        private async Task RecomputeAppointmentPrice(Guid appointmentId)
+        {
+            var visitTypesSum = await _db.AppointmentVisitTypes
+                .Where(v => v.AppointmentId == appointmentId)
+                .SumAsync(v => v.Price);
+            var proceduresSum = await _db.VisitProcedureItems
+                .Where(p => p.AppointmentId == appointmentId)
+                .SumAsync(p => p.Price ?? 0);
+
+            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == appointmentId);
+            if (appointment != null)
+                appointment.Price = visitTypesSum + proceduresSum;
+        }
+
+        // GET: api/appointments/{id}/procedures
+        [HttpGet("{id}/procedures")]
+        public async Task<ActionResult> GetProcedures(Guid id)
+        {
+            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+            if (appointment == null) return NotFound();
+            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            var items = await _db.VisitProcedureItems
+                .Where(p => p.AppointmentId == id)
+                .OrderBy(p => p.CreatedAt)
+                .Select(p => new { p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt })
+                .ToListAsync();
+
+            return Ok(items);
+        }
+
+        // POST: api/appointments/{id}/procedures
+        [HttpPost("{id}/procedures")]
+        public async Task<ActionResult> AddProcedure(Guid id, [FromBody] AddVisitProcedureDto dto, [FromQuery] string lang = "ar")
+        {
+            if (!_clinicContext.IsSuperAdmin && !_clinicContext.HasPermission("appointments.edit")) return Forbid();
+
+            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+            if (appointment == null) return NotFound();
+            if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            string name = dto.Name ?? "";
+            if (dto.ProcedureId.HasValue)
+            {
+                var procedure = await _db.Procedures.FirstOrDefaultAsync(p => p.Id == dto.ProcedureId && p.ClinicId == appointment.ClinicId);
+                if (procedure == null) return BadRequest(Msg(lang, "الإجراء غير موجود", "Procedure not found"));
+                name = procedure.Name;
+            }
+            if (string.IsNullOrWhiteSpace(name))
+                return BadRequest(Msg(lang, "اسم الإجراء مطلوب", "Procedure name is required"));
+
+            var item = new VisitProcedureItem
+            {
+                Id = Guid.NewGuid(),
+                ClinicId = appointment.ClinicId,
+                AppointmentId = id,
+                ProcedureId = dto.ProcedureId,
+                Name = name,
+                Price = dto.Price,
+                DoctorId = appointment.DoctorId,
+                CreatedAt = DateTime.UtcNow,
+            };
+            _db.VisitProcedureItems.Add(item);
+            await RecomputeAppointmentPrice(id);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { item.Id, appointment.Price });
+        }
+
+        // DELETE: api/appointments/{appointmentId}/procedures/{id}
+        [HttpDelete("{appointmentId}/procedures/{id}")]
+        public async Task<ActionResult> RemoveProcedure(Guid appointmentId, Guid id)
+        {
+            if (!_clinicContext.IsSuperAdmin && !_clinicContext.HasPermission("appointments.edit")) return Forbid();
+
+            var item = await _db.VisitProcedureItems.FirstOrDefaultAsync(p => p.Id == id && p.AppointmentId == appointmentId);
+            if (item == null) return NotFound();
+            if (!_clinicContext.IsSuperAdmin && item.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            _db.VisitProcedureItems.Remove(item);
+            await RecomputeAppointmentPrice(appointmentId);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "تم حذف الإجراء" });
+        }
+
         // ═══════════════════════════════════════
         // ✅ دوال حل السعر والحصة — الأولوية:
         // 1) استثناء خاص بالطبيب لهذا القالب تحديداً
@@ -1141,5 +1230,12 @@ namespace ClinicSaaS.API.Controllers
         public decimal Price { get; set; }
         public decimal InsuranceRate { get; set; }
         public decimal InsuranceAmount { get; set; }
+    }
+
+    public class AddVisitProcedureDto
+    {
+        public Guid? ProcedureId { get; set; }
+        public string? Name { get; set; }
+        public decimal? Price { get; set; }
     }
 }

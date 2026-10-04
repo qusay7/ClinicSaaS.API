@@ -77,6 +77,45 @@ namespace ClinicSaaS.API.Controllers
 			}));
 		}
 
+		// ✅ GET: api/queue/active — للطوارئ: الحالات النشطة بالأحدث أول، فلترة
+		// اختيارية بالقسم (تُستخدم لعرض مرضى قسم الطوارئ بس، بدون التقيّد بـ"اليوم")
+		[HttpGet("active")]
+		public async Task<ActionResult> GetActive([FromQuery] Guid? departmentId)
+		{
+			if (_clinicContext.ClinicId == null) return Unauthorized();
+
+			var query = _db.QueueEntries
+				.Where(q => q.ClinicId == _clinicContext.ClinicId
+					&& !q.IsDeleted
+					&& (q.Status == "waiting" || q.Status == "called"));
+
+			if (departmentId.HasValue)
+				query = query.Where(q => q.DepartmentId == departmentId);
+
+			var entries = await query
+				.Include(q => q.Patient)
+				.Include(q => q.Doctor)
+				.OrderByDescending(q => q.CreatedAt)
+				.ToListAsync();
+
+			return Ok(entries.Select(q => new
+			{
+				q.Id,
+				q.QueueNumber,
+				q.Status,
+				q.Notes,
+				q.CreatedAt,
+				q.Price,
+				q.AmountPaid,
+				q.IsPaid,
+				patientId = q.PatientId,
+				patientName = q.Patient.FullName,
+				patientPhone = q.Patient.Phone,
+				doctorId = q.DoctorId,
+				doctorName = q.Doctor?.FullName,
+			}));
+		}
+
 		// POST: api/queue
 		[HttpPost]
 		public async Task<ActionResult> AddToQueue([FromBody] AddToQueueDto dto)
@@ -110,6 +149,7 @@ namespace ClinicSaaS.API.Controllers
 					ClinicId = _clinicContext.ClinicId.Value,
 					PatientId = dto.PatientId,
 					DoctorId = dto.DoctorId,
+					DepartmentId = dto.DepartmentId,
 					QueueNumber = lastNumber + 1,
 					Date = today,
 					Status = "waiting",
@@ -200,6 +240,116 @@ namespace ClinicSaaS.API.Controllers
 			return Ok(new { message = "تم إلغاء الدور" });
 		}
 
+		// ✅ PUT: api/queue/{id}/discharge — خروج مريض الطوارئ (من الطبيب أو
+		// الاستقبال، أي حدا عنده صلاحية queue.manage) — بيغلق الملف ويوثّق مين ووقتيش
+		[HttpPut("{id}/discharge")]
+		public async Task<ActionResult> DischargePatient(Guid id)
+		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+			if (_clinicContext.ClinicId == null) return Unauthorized();
+
+			var entry = await _db.QueueEntries
+				.FirstOrDefaultAsync(q => q.Id == id && !q.IsDeleted);
+
+			if (entry == null) return NotFound();
+			if (entry.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+			entry.Status = "completed";
+			entry.DischargedAt = DateTime.UtcNow;
+			entry.DischargedBy = _clinicContext.UserId;
+			await _db.SaveChangesAsync();
+
+			return Ok(new { message = "تم تسجيل خروج المريض" });
+		}
+
+		// ✅ إجراءات الطوارئ — نفس مبدأ إجراءات الموعد، بس السعر الكلي هون = مجموع
+		// الإجراءات فقط (الطوارئ ماله نظام "بنود زيارة" أساساً)
+		private async Task RecomputeQueueEntryPrice(Guid queueEntryId)
+		{
+			var proceduresSum = await _db.VisitProcedureItems
+				.Where(p => p.QueueEntryId == queueEntryId)
+				.SumAsync(p => p.Price ?? 0);
+
+			var entry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == queueEntryId);
+			if (entry != null)
+				entry.Price = proceduresSum;
+		}
+
+		// GET: api/queue/{id}/procedures
+		[HttpGet("{id}/procedures")]
+		public async Task<ActionResult> GetProcedures(Guid id)
+		{
+			if (_clinicContext.ClinicId == null) return Unauthorized();
+
+			var entry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == id && !q.IsDeleted);
+			if (entry == null) return NotFound();
+			if (entry.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+			var items = await _db.VisitProcedureItems
+				.Where(p => p.QueueEntryId == id)
+				.OrderBy(p => p.CreatedAt)
+				.Select(p => new { p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt, p.DoctorId })
+				.ToListAsync();
+
+			return Ok(items);
+		}
+
+		// POST: api/queue/{id}/procedures
+		[HttpPost("{id}/procedures")]
+		public async Task<ActionResult> AddProcedure(Guid id, [FromBody] AddVisitProcedureDto dto)
+		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+			if (_clinicContext.ClinicId == null) return Unauthorized();
+
+			var entry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == id && !q.IsDeleted);
+			if (entry == null) return NotFound();
+			if (entry.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+			string name = dto.Name ?? "";
+			if (dto.ProcedureId.HasValue)
+			{
+				var procedure = await _db.Procedures.FirstOrDefaultAsync(p => p.Id == dto.ProcedureId && p.ClinicId == entry.ClinicId);
+				if (procedure == null) return BadRequest("الإجراء غير موجود");
+				name = procedure.Name;
+			}
+			if (string.IsNullOrWhiteSpace(name))
+				return BadRequest("اسم الإجراء مطلوب");
+
+			var item = new VisitProcedureItem
+			{
+				Id = Guid.NewGuid(),
+				ClinicId = entry.ClinicId,
+				QueueEntryId = id,
+				ProcedureId = dto.ProcedureId,
+				Name = name,
+				Price = dto.Price,
+				DoctorId = entry.DoctorId,
+				CreatedAt = DateTime.UtcNow,
+			};
+			_db.VisitProcedureItems.Add(item);
+			await RecomputeQueueEntryPrice(id);
+			await _db.SaveChangesAsync();
+
+			return Ok(new { item.Id, entry.Price });
+		}
+
+		// DELETE: api/queue/{queueEntryId}/procedures/{id}
+		[HttpDelete("{queueEntryId}/procedures/{id}")]
+		public async Task<ActionResult> RemoveProcedure(Guid queueEntryId, Guid id)
+		{
+			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+
+			var item = await _db.VisitProcedureItems.FirstOrDefaultAsync(p => p.Id == id && p.QueueEntryId == queueEntryId);
+			if (item == null) return NotFound();
+			if (!_clinicContext.IsSuperAdmin && item.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+			_db.VisitProcedureItems.Remove(item);
+			await RecomputeQueueEntryPrice(queueEntryId);
+			await _db.SaveChangesAsync();
+
+			return Ok(new { message = "تم حذف الإجراء" });
+		}
+
 		// GET: api/queue/stats
 		[HttpGet("stats")]
 		public async Task<ActionResult> GetStats()
@@ -230,6 +380,7 @@ namespace ClinicSaaS.API.Controllers
 	{
 		public Guid PatientId { get; set; }
 		public Guid? DoctorId { get; set; }
+		public Guid? DepartmentId { get; set; }
 		public string? Notes { get; set; }
 	}
 }

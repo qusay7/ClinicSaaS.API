@@ -356,6 +356,7 @@ namespace ClinicSaaS.API.Controllers
 
     new { Name="treatmenttemplates.manage", Module="treatmenttemplates", DisplayName="إدارة قوالب الزيارة", Group="قوالب الزيارة" },
     new { Name="diagnosistemplates.manage", Module="diagnosistemplates", DisplayName="إدارة اقتراحات التشخيص والأدوية", Group="قوالب الزيارة" },
+    new { Name="procedures.manage", Module="procedures", DisplayName="إدارة كتالوج الإجراءات", Group="قوالب الزيارة" },
 
     new { Name="settlements.manage", Module="settlements", DisplayName="إدارة التسويات المالية", Group="التسويات المالية" },
 
