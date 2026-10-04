@@ -116,6 +116,40 @@ namespace ClinicSaaS.API.Controllers
 			}));
 		}
 
+		// ✅ GET: api/queue/{id} — تفاصيل حالة طوارئ معيّنة (تُستخدم عند فتح/تحديث
+		// صفحة تفاصيل المريض مباشرة، بدل الاعتماد على القائمة اللي فتحت منها)
+		[HttpGet("{id}")]
+		public async Task<ActionResult> GetById(Guid id)
+		{
+			if (_clinicContext.ClinicId == null) return Unauthorized();
+
+			var entry = await _db.QueueEntries
+				.Include(q => q.Patient)
+				.Include(q => q.Doctor)
+				.FirstOrDefaultAsync(q => q.Id == id && !q.IsDeleted);
+
+			if (entry == null) return NotFound();
+			if (entry.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+			return Ok(new
+			{
+				entry.Id,
+				entry.QueueNumber,
+				entry.Status,
+				entry.Notes,
+				entry.CreatedAt,
+				entry.Price,
+				entry.AmountPaid,
+				entry.IsPaid,
+				entry.DischargedAt,
+				patientId = entry.PatientId,
+				patientName = entry.Patient.FullName,
+				patientPhone = entry.Patient.Phone,
+				doctorId = entry.DoctorId,
+				doctorName = entry.Doctor?.FullName,
+			});
+		}
+
 		// POST: api/queue
 		[HttpPost]
 		public async Task<ActionResult> AddToQueue([FromBody] AddToQueueDto dto)
