@@ -321,8 +321,12 @@ namespace ClinicSaaS.API.Controllers
 
 			var items = await _db.VisitProcedureItems
 				.Where(p => p.QueueEntryId == id)
+				.Include(p => p.Doctor)
 				.OrderBy(p => p.CreatedAt)
-				.Select(p => new { p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt, p.DoctorId })
+				.Select(p => new {
+					p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt, p.DoctorId,
+					doctorName = p.Doctor == null ? null : p.Doctor.FullName,
+				})
 				.ToListAsync();
 
 			return Ok(items);
@@ -349,6 +353,17 @@ namespace ClinicSaaS.API.Controllers
 			if (string.IsNullOrWhiteSpace(name))
 				return BadRequest("اسم الإجراء مطلوب");
 
+			// ✅ بالطوارئ غالباً QueueEntry.DoctorId فاضي (دخول بدون تحديد طبيب) —
+			// نعزو الإجراء لحساب الطبيب المسجّل دخوله حالياً (نفس منطق VisitNotesController)
+			// بدل ما نعتمد على entry.DoctorId اللي ممكن يكون null أساساً
+			Guid? doctorId = entry.DoctorId;
+			if (_clinicContext.Role == "Doctor")
+			{
+				var doctorRecord = await _db.Doctors.FirstOrDefaultAsync(d =>
+					d.UserId == _clinicContext.UserId && d.ClinicId == entry.ClinicId && !d.IsDeleted);
+				if (doctorRecord != null) doctorId = doctorRecord.Id;
+			}
+
 			var item = new VisitProcedureItem
 			{
 				Id = Guid.NewGuid(),
@@ -357,7 +372,7 @@ namespace ClinicSaaS.API.Controllers
 				ProcedureId = dto.ProcedureId,
 				Name = name,
 				Price = dto.Price,
-				DoctorId = entry.DoctorId,
+				DoctorId = doctorId,
 				CreatedAt = DateTime.UtcNow,
 			};
 			_db.VisitProcedureItems.Add(item);
