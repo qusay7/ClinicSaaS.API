@@ -364,6 +364,11 @@ namespace ClinicSaaS.API.Controllers
 
     new { Name="queue.manage",          Module="queue",         DisplayName="إدارة الطابور",         Group="الطابور"      },
 
+    // ✅ صلاحيات مخصّصة للطوارئ — منفصلة عن queue.manage عشان تقدر تعطي موظف
+    // الاستقبال صلاحية تسجيل الدخول فقط، بدون صلاحية إدارة الحالة كاملة (قراءات/إجراءات/خروج)
+    new { Name="emergency.checkin",     Module="emergency",     DisplayName="تسجيل دخول الطوارئ",    Group="الطوارئ"      },
+    new { Name="emergency.manage",      Module="emergency",     DisplayName="إدارة لوحة ومتابعة الطوارئ", Group="الطوارئ" },
+
     new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
     new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },
     new { Name="visitnotes.edit",       Module="visitnotes",    DisplayName="تعديل ملاحظة زيارة",     Group="ملاحظات الزيارة" },

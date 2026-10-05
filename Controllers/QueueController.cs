@@ -22,6 +22,15 @@ namespace ClinicSaaS.API.Controllers
 			_clinicContext = clinicContext;
 		}
 
+		// ✅ queue.manage يبقى يغطي كل شي (الطابور العادي والطوارئ معاً، كما كان) —
+		// emergency.checkin/emergency.manage صلاحيات بديلة أدق تسمح بفصل الاستقبال
+		// (تسجيل دخول فقط) عن متابعة الحالة كاملة، بدون داعي لمنح queue.manage الواسعة
+		private bool CanCheckIn() =>
+			_clinicContext.HasPermission("queue.manage") || _clinicContext.HasPermission("emergency.checkin") || _clinicContext.HasPermission("emergency.manage");
+
+		private bool CanManageEmergencyCase() =>
+			_clinicContext.HasPermission("queue.manage") || _clinicContext.HasPermission("emergency.manage");
+
 		// ✅ يحسب "اليوم" بتوقيت العيادة المحلي بدل UTC مباشرة
 		private async Task<DateTime> GetClinicToday()
 		{
@@ -154,7 +163,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpPost]
 		public async Task<ActionResult> AddToQueue([FromBody] AddToQueueDto dto)
 		{
-			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+			if (!CanCheckIn()) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var today = await GetClinicToday();
@@ -275,11 +284,11 @@ namespace ClinicSaaS.API.Controllers
 		}
 
 		// ✅ PUT: api/queue/{id}/discharge — خروج مريض الطوارئ (من الطبيب أو
-		// الاستقبال، أي حدا عنده صلاحية queue.manage) — بيغلق الملف ويوثّق مين ووقتيش
+		// الاستقبال، أي حدا عنده صلاحية إدارة حالة الطوارئ) — بيغلق الملف ويوثّق مين ووقتيش
 		[HttpPut("{id}/discharge")]
 		public async Task<ActionResult> DischargePatient(Guid id)
 		{
-			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+			if (!CanManageEmergencyCase()) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var entry = await _db.QueueEntries
@@ -336,7 +345,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpPost("{id}/procedures")]
 		public async Task<ActionResult> AddProcedure(Guid id, [FromBody] AddVisitProcedureDto dto)
 		{
-			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+			if (!CanManageEmergencyCase()) return Forbid();
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var entry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == id && !q.IsDeleted);
@@ -386,7 +395,7 @@ namespace ClinicSaaS.API.Controllers
 		[HttpDelete("{queueEntryId}/procedures/{id}")]
 		public async Task<ActionResult> RemoveProcedure(Guid queueEntryId, Guid id)
 		{
-			if (!_clinicContext.HasPermission("queue.manage")) return Forbid();
+			if (!CanManageEmergencyCase()) return Forbid();
 
 			var item = await _db.VisitProcedureItems.FirstOrDefaultAsync(p => p.Id == id && p.QueueEntryId == queueEntryId);
 			if (item == null) return NotFound();
