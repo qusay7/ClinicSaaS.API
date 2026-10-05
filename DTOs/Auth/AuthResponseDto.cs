@@ -17,5 +17,8 @@
         public DateTime RefreshTokenExpiresAt { get; set; } // متى تنتهي صلاحية بطاقة التجديد
         public List<string> Permissions { get; set; } = new(); // قائمة الصلاحيات التي يمتلكها المستخدم
 
+        // ✅ طبيب مرتبط بقسم طوارئ — الفرونت يستخدمها لتوجيهه للوحة الطوارئ بعد
+        // تسجيل الدخول بدل جدول اليوم العادي (أطباء الطوارئ ما لهم جدول مواعيد ثابت)
+        public bool IsEmergencyDoctor { get; set; }
     }
 }

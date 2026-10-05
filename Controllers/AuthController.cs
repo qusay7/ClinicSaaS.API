@@ -23,6 +23,18 @@ namespace ClinicSaaS.API.Controllers
             _config = config;
         }
 
+        // ✅ هل هذا المستخدم طبيب مرتبط بقسم من نوع "طوارئ"؟ — نفس منطق إيجاد
+        // "الطبيب الحالي" من UserId المستخدم بأماكن أخرى (مثل AppointmentsController)
+        private async Task<bool> IsEmergencyDoctorAsync(User user)
+        {
+            if (user.Role != "Doctor" || user.ClinicId == null) return false;
+            var doctor = await _db.Doctors.FirstOrDefaultAsync(d =>
+                d.UserId == user.Id && d.ClinicId == user.ClinicId && !d.IsDeleted);
+            if (doctor?.DepartmentId == null) return false;
+            var dept = await _db.Departments.FirstOrDefaultAsync(dp => dp.Id == doctor.DepartmentId);
+            return dept?.Type == DepartmentType.Emergency;
+        }
+
         // ─── Helper ───────────────────────────────────────────────────────────
         private static string Msg(string lang, string ar, string en)
             => lang == "ar" ? ar : en;
@@ -170,6 +182,7 @@ namespace ClinicSaaS.API.Controllers
                 Permissions = permissions, // ✅ جديد
                 ExpiresAt = DateTime.UtcNow.AddDays(7),
                 RefreshTokenExpiresAt = refreshToken.ExpiresAt,
+                IsEmergencyDoctor = await IsEmergencyDoctorAsync(user),
             });
         }
 
@@ -220,6 +233,7 @@ namespace ClinicSaaS.API.Controllers
                 Permissions = permissions, // ✅ جديد
                 ExpiresAt = DateTime.UtcNow.AddDays(7),
                 RefreshTokenExpiresAt = newRefreshToken.ExpiresAt,
+                IsEmergencyDoctor = await IsEmergencyDoctorAsync(refreshToken.User),
             });
         }
 
