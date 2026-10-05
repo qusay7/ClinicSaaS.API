@@ -353,6 +353,7 @@ namespace ClinicSaaS.API.Data
                 e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.QueueEntry).WithMany().HasForeignKey(x => x.QueueEntryId).OnDelete(DeleteBehavior.Restrict);
             });
             modelBuilder.Entity<Attachment>().HasQueryFilter(x => !x.IsDeleted);
 
@@ -957,6 +958,7 @@ namespace ClinicSaaS.API.Data
         public Guid ClinicId { get; set; }
         public Guid PatientId { get; set; }
         public Guid? AppointmentId { get; set; }   // اختياري — مرتبط بزيارة معينة
+        public Guid? QueueEntryId { get; set; }     // اختياري — مرتبط بحالة طوارئ معينة
 
         public string FileName { get; set; } = "";     // الاسم الأصلي كما رفعه المستخدم
         public string FilePath { get; set; } = "";     // المسار النسبي داخل مجلد uploads
@@ -971,6 +973,7 @@ namespace ClinicSaaS.API.Data
         public Clinic? Clinic { get; set; }
         public Patient? Patient { get; set; }
         public Appointment? Appointment { get; set; }
+        public QueueEntry? QueueEntry { get; set; }
 
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }

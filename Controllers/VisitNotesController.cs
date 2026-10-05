@@ -184,6 +184,17 @@ namespace ClinicSaaS.API.Controllers
                 }
             }
 
+            // ✅ بالطوارئ ما فيه طبيب ثابت بالضرورة — لو الفرونت ما حدد DoctorId
+            // ونفس المستخدم طبيب فعلاً، نعزو السجل لحسابه تلقائياً (نفس منطق
+            // GetAll بـ AppointmentsController) بدل الاعتماد على الفرونت يعرف doctorId
+            var doctorId = dto.DoctorId;
+            if (doctorId == null && dto.QueueEntryId.HasValue && _clinicContext.Role == "Doctor")
+            {
+                var doctorRecord = await _db.Doctors.FirstOrDefaultAsync(d =>
+                    d.UserId == _clinicContext.UserId && d.ClinicId == _clinicContext.ClinicId && !d.IsDeleted);
+                doctorId = doctorRecord?.Id;
+            }
+
             var note = new VisitNote
             {
                 Id = Guid.NewGuid(),
@@ -191,7 +202,7 @@ namespace ClinicSaaS.API.Controllers
                 PatientId = dto.PatientId,
                 AppointmentId = dto.AppointmentId,
                 QueueEntryId = dto.QueueEntryId,
-                DoctorId = dto.DoctorId,
+                DoctorId = doctorId,
                 Diagnosis = dto.Diagnosis,
                 Prescription = dto.Prescription,
                 Tests = dto.Tests,

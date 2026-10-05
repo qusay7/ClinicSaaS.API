@@ -72,6 +72,7 @@ namespace ClinicSaaS.API.Controllers
                     notes = a.Notes,
                     createdAt = a.CreatedAt,
                     appointmentId = a.AppointmentId,
+                    queueEntryId = a.QueueEntryId,
                     isImage = a.FileType.StartsWith("image/"),
                     isAudio = a.FileType.StartsWith("audio/"),
                 })
@@ -83,7 +84,7 @@ namespace ClinicSaaS.API.Controllers
         // POST: api/attachments/upload
         [HttpPost("upload")]
         public async Task<ActionResult> Upload(IFormFile file, [FromForm] Guid patientId,
-            [FromForm] string? category, [FromForm] Guid? appointmentId, [FromForm] string? notes,
+            [FromForm] string? category, [FromForm] Guid? appointmentId, [FromForm] Guid? queueEntryId, [FromForm] string? notes,
             [FromQuery] string lang = "ar")
         {
             if (!_clinicContext.HasPermission("patients.edit")) return Forbid();
@@ -120,6 +121,7 @@ namespace ClinicSaaS.API.Controllers
                 ClinicId = clinicId,
                 PatientId = patientId,
                 AppointmentId = appointmentId,
+                QueueEntryId = queueEntryId,
                 FileName = file.FileName,
                 FilePath = Path.Combine(clinicId.ToString(), storedFileName),
                 FileType = ContentTypeFor(ext),
