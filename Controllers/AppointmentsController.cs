@@ -353,6 +353,91 @@ namespace ClinicSaaS.API.Controllers
             return Ok(result);
         }
 
+        // ✅ GET: api/appointments/reception-overview — لوحة الاستقبال: حالة كل
+        // طبيب (عنده مريض الآن أو لأ)، ومين خلّص الزيارة وبانتظار الدفع، ومين
+        // خلّص ودفع — كل هذا لليوم الحالي، عشان الاستقبال/الممرض يتابع بنظرة واحدة
+        [HttpGet("reception-overview")]
+        public async Task<ActionResult> GetReceptionOverview()
+        {
+            if (_clinicContext.ClinicId == null && !_clinicContext.IsSuperAdmin)
+                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+
+            var today = DateTime.UtcNow.Date;
+            var tomorrow = today.AddDays(1);
+
+            var doctorsQuery = _db.Doctors.Where(d => !d.IsDeleted && d.IsActive);
+            if (!_clinicContext.IsCompanyStaff)
+                doctorsQuery = doctorsQuery.Where(d => d.ClinicId == _clinicContext.ClinicId);
+            var doctors = await doctorsQuery.ToListAsync();
+
+            var apptQuery = _db.Appointments
+                .Where(a => !a.IsDeleted && a.AppointmentDate >= today && a.AppointmentDate < tomorrow && a.DoctorId != null);
+            if (!_clinicContext.IsCompanyStaff)
+                apptQuery = apptQuery.Where(a => a.ClinicId == _clinicContext.ClinicId);
+
+            var todayAppointments = await apptQuery
+                .Include(a => a.Patient)
+                .Include(a => a.Doctor)
+                .ToListAsync();
+
+            // ✅ عنده مريض الآن = دخل (CheckInTime) ولسا ما خرج (CheckOutTime فاضي)
+            var doctorStatuses = doctors.Select(d =>
+            {
+                var current = todayAppointments.FirstOrDefault(a =>
+                    a.DoctorId == d.Id && a.CheckInTime != null && a.CheckOutTime == null && a.Status != "cancelled");
+                return new
+                {
+                    doctorId = d.Id,
+                    doctorName = d.FullName,
+                    specialty = d.Specialty,
+                    isBusy = current != null,
+                    currentPatientName = current?.Patient?.FullName,
+                };
+            })
+            .OrderByDescending(d => d.isBusy)
+            .ThenBy(d => d.doctorName)
+            .ToList();
+
+            var finishedAppointments = todayAppointments
+                .Where(a => a.CheckOutTime != null && a.Status == "completed" && (a.Price ?? 0) > 0)
+                .ToList();
+            var finishedIds = finishedAppointments.Select(a => a.Id).ToList();
+
+            var paymentDetails = await _db.PaymentDetails
+                .Where(p => finishedIds.Contains(p.AppointmentId))
+                .ToListAsync();
+
+            var awaitingPayment = finishedAppointments
+                .Where(a => { var pd = paymentDetails.FirstOrDefault(p => p.AppointmentId == a.Id); return pd == null || !pd.IsPaid; })
+                .OrderByDescending(a => a.CheckOutTime)
+                .Select(a => new
+                {
+                    appointmentId = a.Id,
+                    patientName = a.Patient.FullName,
+                    doctorName = a.Doctor?.FullName,
+                    checkOutTime = a.CheckOutTime,
+                    totalAmount = a.Price,
+                })
+                .ToList();
+
+            var completedPaid = finishedAppointments
+                .Select(a => new { appt = a, pd = paymentDetails.FirstOrDefault(p => p.AppointmentId == a.Id) })
+                .Where(x => x.pd != null && x.pd.IsPaid)
+                .OrderByDescending(x => x.appt.CheckOutTime)
+                .Select(x => new
+                {
+                    appointmentId = x.appt.Id,
+                    patientName = x.appt.Patient.FullName,
+                    doctorName = x.appt.Doctor?.FullName,
+                    checkOutTime = x.appt.CheckOutTime,
+                    totalAmount = x.appt.Price,
+                    amountPaid = x.pd!.AmountPaid,
+                })
+                .ToList();
+
+            return Ok(new { doctors = doctorStatuses, awaitingPayment, completedPaid });
+        }
+
         // GET: api/appointments/patient/{patientId}
         [HttpGet("patient/{patientId}")]
         public async Task<ActionResult<IEnumerable<AppointmentResponseDto>>> GetByPatient(Guid patientId)
@@ -779,6 +864,7 @@ namespace ClinicSaaS.API.Controllers
         {
             var appointment = await _db.Appointments
                 .Include(a => a.Patient)
+                .Include(a => a.Doctor)
                 .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
             if (appointment == null) return NotFound();
             if (!_clinicContext.IsSuperAdmin && appointment.ClinicId != _clinicContext.ClinicId) return Forbid();
@@ -857,6 +943,15 @@ namespace ClinicSaaS.API.Controllers
 
             await _db.SaveChangesAsync();
             var duration = appointment.CheckOutTime - appointment.CheckInTime;
+
+            // ✅ إشعار جرس الواجهة لموظفي الاستقبال — المريض الفلاني انتهت زيارته
+            // عند الطبيب الفلاني الساعة الفلانية، عشان يتابعوا الدفع بسرعة بدون
+            // ما يحتاجوا يراقبوا الشاشة باستمرار
+            await _notificationService.CreateAppNotification(
+                appointment.ClinicId,
+                "visit-finished",
+                "انتهت الزيارة",
+                $"المريض {appointment.Patient?.FullName ?? "—"} انتهت زيارته عند {appointment.Doctor?.FullName ?? "الطبيب"} الساعة {appointment.CheckOutTime:hh:mm tt}");
 
             return Ok(new
             {
