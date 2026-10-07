@@ -520,6 +520,7 @@ namespace ClinicSaaS.API.Controllers
                     type = n.Type,
                     read = n.IsRead,
                     createdAt = n.CreatedAt,
+                    relatedAppointmentId = n.RelatedAppointmentId,
                 })
                 .ToListAsync();
 

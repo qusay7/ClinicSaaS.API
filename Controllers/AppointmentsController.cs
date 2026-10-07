@@ -951,7 +951,8 @@ namespace ClinicSaaS.API.Controllers
                 appointment.ClinicId,
                 "visit-finished",
                 "انتهت الزيارة",
-                $"المريض {appointment.Patient?.FullName ?? "—"} انتهت زيارته عند {appointment.Doctor?.FullName ?? "الطبيب"} الساعة {appointment.CheckOutTime:hh:mm tt}");
+                $"المريض {appointment.Patient?.FullName ?? "—"} انتهت زيارته عند {appointment.Doctor?.FullName ?? "الطبيب"} الساعة {appointment.CheckOutTime:hh:mm tt}",
+                appointment.Id);
 
             return Ok(new
             {

@@ -25,8 +25,9 @@ namespace ClinicSaaS.API.Services
         /// <summary>عدد الرسائل المُرسلة اليوم (بتوقيت الأردن) والحد الأقصى بخطة العيادة (-1 = غير محدود)</summary>
         Task<(int Used, int Limit)> GetMessageQuota(Guid clinicId);
 
-        /// <summary>ينشئ إشعاراً بجرس الواجهة لكل موظفي العيادة (type: appointment | alert | system)</summary>
-        Task CreateAppNotification(Guid clinicId, string type, string title, string message);
+        /// <summary>ينشئ إشعاراً بجرس الواجهة لكل موظفي العيادة (type: appointment | alert | system | visit-finished).
+        /// relatedAppointmentId اختياري — يسمح للفرونت يربط الإشعار بموعد معيّن (مثلاً يفتح شاشة الدفع له مباشرة)</summary>
+        Task CreateAppNotification(Guid clinicId, string type, string title, string message, Guid? relatedAppointmentId = null);
     }
 
     public class NotificationService : INotificationService
@@ -1083,7 +1084,7 @@ namespace ClinicSaaS.API.Services
         // إشعار جرس الواجهة
         // ══════════════════════════════════════════════════════
 
-        public async Task CreateAppNotification(Guid clinicId, string type, string title, string message)
+        public async Task CreateAppNotification(Guid clinicId, string type, string title, string message, Guid? relatedAppointmentId = null)
         {
             try
             {
@@ -1095,6 +1096,7 @@ namespace ClinicSaaS.API.Services
                     Title = title,
                     Message = message,
                     IsRead = false,
+                    RelatedAppointmentId = relatedAppointmentId,
                     CreatedAt = DateTime.UtcNow,
                 });
                 await _db.SaveChangesAsync();

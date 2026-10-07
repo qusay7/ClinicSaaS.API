@@ -1071,8 +1071,10 @@ namespace ClinicSaaS.API.Data
         public Guid ClinicId { get; set; }
         public string Title { get; set; } = "";
         public string Message { get; set; } = "";
-        public string Type { get; set; } = "system"; // appointment | alert | system
+        public string Type { get; set; } = "system"; // appointment | alert | system | visit-finished
         public bool IsRead { get; set; }
+        // ✅ يسمح للفرونت يوديك مباشرة لشاشة الدفع لما تضغط إشعار "انتهت الزيارة"
+        public Guid? RelatedAppointmentId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
