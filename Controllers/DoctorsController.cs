@@ -63,6 +63,24 @@ namespace ClinicSaaS.API.Controllers
             return Ok(doctors.Select(d => ToResponse(d)).ToList());
         }
 
+        // ✅ GET: api/doctors/me — سجل الطبيب المرتبط بحساب المستخدم الحالي، بدون
+        // حاجة لصلاحية doctors.view (دخولك على بياناتك الخاصة، مش تصفّح أطباء غيرك)
+        // — يخدم شاشات زي "تقويم الطبيب" لما الطبيب نفسه يفتحها
+        [HttpGet("me")]
+        public async Task<ActionResult<DoctorResponseDto>> GetMe()
+        {
+            if (_clinicContext.UserId == null) return Unauthorized();
+
+            var doctor = await _db.Doctors
+                .Include(d => d.Department)
+                .FirstOrDefaultAsync(d => d.UserId == _clinicContext.UserId && !d.IsDeleted);
+
+            if (doctor == null) return NotFound();
+            if (!_clinicContext.IsCompanyStaff && doctor.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            return Ok(ToResponse(doctor));
+        }
+
         // ✅ GET: api/doctors/export?format=pdf|excel
         [HttpGet("export")]
         public async Task<ActionResult> Export([FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
