@@ -71,6 +71,8 @@ namespace ClinicSaaS.API.Controllers
                 IsActive = true,
                 Name = dto.Name.Trim(),
                 Description = dto.Description?.Trim(),
+                NameEn = string.IsNullOrWhiteSpace(dto.NameEn) ? null : dto.NameEn.Trim(),
+                DescriptionEn = string.IsNullOrWhiteSpace(dto.DescriptionEn) ? null : dto.DescriptionEn.Trim(),
                 MonthlyPrice = dto.MonthlyPrice,
                 YearlyPrice = dto.YearlyPrice,
                 MaxUsers = dto.MaxUsers,
@@ -78,6 +80,7 @@ namespace ClinicSaaS.API.Controllers
                 MaxPatients = dto.MaxPatients,
                 MaxDailyMessages = dto.MaxDailyMessages,
                 FeaturesText = NormalizeFeatures(dto.FeaturesText),
+                FeaturesTextEn = NormalizeFeatures(dto.FeaturesTextEn),
                 IsFeatured = dto.IsFeatured,
                 HasElectronicInvoicing = dto.HasElectronicInvoicing,
                 HasMultipleDepartments = dto.HasMultipleDepartments,
@@ -114,6 +117,8 @@ namespace ClinicSaaS.API.Controllers
 
             plan.Name = dto.Name.Trim();
             plan.Description = dto.Description?.Trim();
+            plan.NameEn = string.IsNullOrWhiteSpace(dto.NameEn) ? null : dto.NameEn.Trim();
+            plan.DescriptionEn = string.IsNullOrWhiteSpace(dto.DescriptionEn) ? null : dto.DescriptionEn.Trim();
             plan.MonthlyPrice = dto.MonthlyPrice;
             plan.YearlyPrice = dto.YearlyPrice;
             plan.MaxUsers = dto.MaxUsers;
@@ -121,6 +126,7 @@ namespace ClinicSaaS.API.Controllers
             plan.MaxPatients = dto.MaxPatients;
             plan.MaxDailyMessages = dto.MaxDailyMessages;
             plan.FeaturesText = NormalizeFeatures(dto.FeaturesText);
+            plan.FeaturesTextEn = NormalizeFeatures(dto.FeaturesTextEn);
             plan.IsFeatured = dto.IsFeatured;
             plan.HasElectronicInvoicing = dto.HasElectronicInvoicing;
             plan.HasMultipleDepartments = dto.HasMultipleDepartments;
@@ -222,6 +228,8 @@ namespace ClinicSaaS.API.Controllers
             Id = p.Id,
             Name = p.Name,
             Description = p.Description,
+            NameEn = p.NameEn,
+            DescriptionEn = p.DescriptionEn,
             MonthlyPrice = p.MonthlyPrice,
             YearlyPrice = p.YearlyPrice,
             MaxUsers = p.MaxUsers,
@@ -233,6 +241,9 @@ namespace ClinicSaaS.API.Controllers
             Features = string.IsNullOrWhiteSpace(p.FeaturesText)
                 ? new List<string>()
                 : p.FeaturesText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
+            FeaturesEn = string.IsNullOrWhiteSpace(p.FeaturesTextEn)
+                ? new List<string>()
+                : p.FeaturesTextEn.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
             IsFeatured = p.IsFeatured,
             HasElectronicInvoicing = p.HasElectronicInvoicing,
             HasMultipleDepartments = p.HasMultipleDepartments,

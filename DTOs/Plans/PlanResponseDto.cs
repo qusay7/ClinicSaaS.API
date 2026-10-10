@@ -6,6 +6,8 @@
         public Guid Id { get; set; }
         public string Name { get; set; } = default!;
         public string? Description { get; set; }
+        public string? NameEn { get; set; }
+        public string? DescriptionEn { get; set; }
         public decimal MonthlyPrice { get; set; }
         public decimal YearlyPrice { get; set; }
         public int MaxUsers { get; set; }
@@ -14,6 +16,7 @@
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public List<string> Features { get; set; } = new();   // ✅ جديد
+        public List<string> FeaturesEn { get; set; } = new();  // ✅ النسخة الإنجليزية
         public bool IsFeatured { get; set; }                    // ✅ جديد
         public int MaxDailyMessages { get; set; }
         public bool HasElectronicInvoicing { get; set; }

@@ -719,6 +719,11 @@ namespace ClinicSaaS.API.Data
         public Guid Id { get; set; }
         public string Name { get; set; } = default!;
         public string? Description { get; set; }
+        // ✅ نسخة إنجليزية اختيارية لكل حقل نصّي — نفس اتفاقية NameEn المستخدمة
+        // بباقي الكيانات (Department, Procedure...)؛ لو فاضية، الواجهة ترجع للنص
+        // الأساسي بالحقل المقابل بدل ما تظهر فاضية
+        public string? NameEn { get; set; }
+        public string? DescriptionEn { get; set; }
         public decimal MonthlyPrice { get; set; }
         public decimal YearlyPrice { get; set; }
         public int MaxUsers { get; set; }
@@ -728,6 +733,7 @@ namespace ClinicSaaS.API.Data
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public string? FeaturesText { get; set; }   // ✅ جديد — كل ميزة بسطر منفصل
+        public string? FeaturesTextEn { get; set; }  // ✅ النسخة الإنجليزية من المميزات، بنفس التنسيق
         public bool IsFeatured { get; set; } = false;  // ✅ جديد — تعليم "الأكثر اختيارًا"
 
         public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
