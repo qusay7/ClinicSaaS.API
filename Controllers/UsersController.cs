@@ -4,11 +4,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
+
 namespace ClinicSaaS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class UsersController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -41,6 +44,7 @@ namespace ClinicSaaS.API.Controllers
         // GET: api/users
         [HttpGet]
         [Authorize(Roles = "SuperAdmin")]
+        [RequireActiveSubscription]
         public async Task<ActionResult<IEnumerable<UserResponseDto>>> GetAll()
         {
             var users = await _db.Users
@@ -54,6 +58,7 @@ namespace ClinicSaaS.API.Controllers
         // GET: api/users/clinic/{clinicId}
         [HttpGet("clinic/{clinicId}")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        [RequireActiveSubscription]
         public async Task<ActionResult<IEnumerable<UserResponseDto>>> GetByClinic(Guid clinicId)
         {
             if (_clinicContext.Role == "ClinicAdmin" && clinicId != _clinicContext.ClinicId)
@@ -75,6 +80,7 @@ namespace ClinicSaaS.API.Controllers
         // POST: api/users
         [HttpPost]
         [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        [RequireActiveSubscription]
         public async Task<ActionResult<UserResponseDto>> Create([FromBody] CreateUserDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.FullName)) return BadRequest("Full name required");
@@ -95,11 +101,15 @@ namespace ClinicSaaS.API.Controllers
             }
             else if (_clinicContext.Role == "ClinicAdmin")
             {
-                var allowedRoles = new[] { "Doctor", "Receptionist", "ClinicStaff" };
-                if (!allowedRoles.Contains(dto.Role))
-                    return BadRequest("يمكنك فقط إنشاء Doctor أو Receptionist");
-
                 dto.ClinicId = _clinicContext.ClinicId;
+
+                // ✅ كان مقيّد بـ Doctor/Receptionist/ClinicStaff فقط — الآن أي دور
+                // معرّف فعلياً لهذه العيادة (Nurse، Administration employee، ...) مسموح،
+                // بشرط وجوده فعلاً (يحمي من قيمة Role غير صحيحة تدخل بالخطأ)
+                var roleExists = await _db.Roles
+                    .AnyAsync(r => r.ClinicId == dto.ClinicId && r.Name == dto.Role && r.IsActive);
+                if (!roleExists)
+                    return BadRequest("دور غير صحيح");
             }
             else if (_clinicContext.Role == "ClinicStaff")
             {
@@ -206,6 +216,7 @@ namespace ClinicSaaS.API.Controllers
         // ✅ GET: api/users/export?format=pdf|excel&clinicId=
         [HttpGet("export")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        [RequireActiveSubscription] 
         public async Task<ActionResult> Export([FromQuery] Guid? clinicId, [FromQuery] string format = "pdf", [FromQuery] string lang = "ar")
         {
             var isRtl = lang == "ar";
@@ -269,6 +280,7 @@ namespace ClinicSaaS.API.Controllers
         // PATCH: api/users/{id}/toggle
         [HttpPatch("{id}/toggle")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        [RequireActiveSubscription]
         public async Task<ActionResult> Toggle(Guid id)
         {
             var user = await _db.Users.FindAsync(id);
