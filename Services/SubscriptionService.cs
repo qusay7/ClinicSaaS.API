@@ -36,6 +36,14 @@ namespace ClinicSaaS.API.Services
             if (subscription.Plan.MaxUsers == -1)
                 return (true, null);
 
+            // ✅ كان ناقص هذا الجزء بالكامل — الفحص كان يرجع "مسموح" دايماً بدون
+            // ما يحسب عدد المستخدمين الحاليين أصلاً. نفس منطق CanAddDoctor/CanAddPatient
+            var currentUsers = await _db.Users
+                .CountAsync(u => u.ClinicId == clinicId && !u.IsDeleted && u.IsActive);
+
+            if (currentUsers >= subscription.Plan.MaxUsers)
+                return (false, $"وصلت للحد الأقصى ({subscription.Plan.MaxUsers} مستخدمين) في خطتك");
+
             return (true, null);
         }
         // هل يمكن إضافة طبيب جديد؟

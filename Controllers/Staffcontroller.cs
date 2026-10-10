@@ -15,11 +15,13 @@ namespace ClinicSaaS.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
+        private readonly SubscriptionService _subscriptionService;
 
-        public StaffController(ApplicationDbContext db, IClinicContext clinicContext)
+        public StaffController(ApplicationDbContext db, IClinicContext clinicContext, SubscriptionService subscriptionService)
         {
             _db = db;
             _clinicContext = clinicContext;
+            _subscriptionService = subscriptionService;
         }
 
         private static string Msg(string lang, string ar, string en) => lang == "ar" ? ar : en;
@@ -88,6 +90,12 @@ namespace ClinicSaaS.API.Controllers
                 var emailExists = await _db.Users.AnyAsync(u => u.Email == dto.LoginEmail);
                 if (emailExists)
                     return BadRequest(Msg(lang, "البريد الإلكتروني مستخدم مسبقاً", "This email is already in use"));
+
+                // ✅ كان هذا الفحص غائباً بالكامل — "إنشاء حساب دخول" هون كان يتجاوز
+                // حد المستخدمين بخطة العيادة تماماً (بعكس إضافة طبيب/مريض اللي بالفعل محكومين)
+                var (canAddUser, userError) = await _subscriptionService.CanAddUser(clinicId);
+                if (!canAddUser)
+                    return BadRequest(userError);
             }
 
             using var transaction = await _db.Database.BeginTransactionAsync();
