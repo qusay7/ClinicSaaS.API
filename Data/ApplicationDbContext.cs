@@ -676,6 +676,10 @@ namespace ClinicSaaS.API.Data
         public Guid? DepartmentId { get; set; }
         public Department? Department { get; set; }
         public bool IsDeleted { get; set; } = false;
+        // ✅ حماية من brute-force — تُصفّر عند دخول ناجح، وتقفل الحساب مؤقتاً
+        // بعد عدد محاولات فاشلة متتالية (انظر AuthController.Login)
+        public int FailedLoginAttempts { get; set; } = 0;
+        public DateTime? LockoutUntil { get; set; }
         public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }

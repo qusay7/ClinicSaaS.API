@@ -39,6 +39,10 @@ namespace ClinicSaaS.API.Controllers
         private static string Msg(string lang, string ar, string en)
             => lang == "ar" ? ar : en;
 
+        // ✅ حماية brute-force: بعد 5 محاولات فاشلة متتالية يُقفل الحساب 15 دقيقة
+        private const int MaxFailedLoginAttempts = 5;
+        private const int LockoutMinutes = 15;
+
         // ✅ Helper لجلب الصلاحيات
         private async Task<List<string>> GetUserPermissionsAsync(User user)
         {
@@ -111,10 +115,38 @@ namespace ClinicSaaS.API.Controllers
                     "البريد أو كلمة المرور غير صحيحة",
                     "Invalid email or password"));
 
+            if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
+            {
+                var minutesLeft = Math.Ceiling((user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
+                return Unauthorized(Msg(lang,
+                    $"الحساب مقفل مؤقتاً بسبب محاولات دخول فاشلة متكررة. حاول بعد {minutesLeft} دقيقة",
+                    $"Account temporarily locked due to repeated failed login attempts. Try again in {minutesLeft} minute(s)"));
+            }
+
             if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
+            {
+                user.FailedLoginAttempts++;
+                if (user.FailedLoginAttempts >= MaxFailedLoginAttempts)
+                {
+                    user.LockoutUntil = DateTime.UtcNow.AddMinutes(LockoutMinutes);
+                    user.FailedLoginAttempts = 0;
+                    await _db.SaveChangesAsync();
+                    return Unauthorized(Msg(lang,
+                        $"الحساب مقفل مؤقتاً بسبب محاولات دخول فاشلة متكررة. حاول بعد {LockoutMinutes} دقيقة",
+                        $"Account temporarily locked due to repeated failed login attempts. Try again in {LockoutMinutes} minute(s)"));
+                }
+                await _db.SaveChangesAsync();
                 return Unauthorized(Msg(lang,
                     "البريد أو كلمة المرور غير صحيحة",
                     "Invalid email or password"));
+            }
+
+            // ✅ دخول ناجح — نصفّر عداد المحاولات الفاشلة والقفل
+            if (user.FailedLoginAttempts != 0 || user.LockoutUntil != null)
+            {
+                user.FailedLoginAttempts = 0;
+                user.LockoutUntil = null;
+            }
 
             // ✅ التحقق من انتماء المستخدم للعيادة المختارة
             if (!string.IsNullOrEmpty(subdomain) && subdomain.ToLower() != "admin")

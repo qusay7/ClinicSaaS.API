@@ -2324,6 +2324,9 @@ namespace ClinicSaaS.API.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("int");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -2333,6 +2336,9 @@ namespace ClinicSaaS.API.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LockoutUntil")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
