@@ -796,6 +796,8 @@ namespace ClinicSaaS.API.Data
         public TimeOnly OpenTime { get; set; }
         public TimeOnly CloseTime { get; set; }
         public bool IsActive { get; set; } = true;
+        // ✅ nullable — السجلات القديمة قبل هذا الحقل ترجع NULL بدل تاريخ وهمي
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -814,6 +816,7 @@ namespace ClinicSaaS.API.Data
         public bool IsActive { get; set; } = true;
         public decimal? FirstVisitPrice { get; set; }
         public decimal? FollowUpPrice { get; set; }
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -864,6 +867,7 @@ namespace ClinicSaaS.API.Data
 
         // ✅ تحويل من string إلى enum
         public RoleScope Scope { get; set; } = RoleScope.Clinic;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -884,6 +888,7 @@ namespace ClinicSaaS.API.Data
         public string? Group { get; set; }
         public string DisplayName { get; set; } = "";
         public bool IsActive { get; set; } = true;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -899,6 +904,7 @@ namespace ClinicSaaS.API.Data
         public bool IsActive { get; set; } = true;
         public Role Role { get; set; } = null!;
         public Permission Permission { get; set; } = null!;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -913,6 +919,7 @@ namespace ClinicSaaS.API.Data
 
         public Department Department { get; set; } = null!;
         public Role Role { get; set; } = null!;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -1352,13 +1359,17 @@ namespace ClinicSaaS.API.Data
         public DateTime? UpdatedAt { get; set; }
     }
 
-    public class DiagnosisMedication
+    public class DiagnosisMedication : IAuditable
     {
         public Guid Id { get; set; }
         public Guid DiagnosisTemplateId { get; set; }
         public string DrugName { get; set; } = "";       // "Augmentin 625mg"
         public string? Instructions { get; set; }        // "كل 12 ساعة لمدة 7 أيام"
         public int SortOrder { get; set; } = 0;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public DiagnosisTemplate? DiagnosisTemplate { get; set; }
     }
@@ -1514,7 +1525,7 @@ namespace ClinicSaaS.API.Data
     // إجراء فعلي تم إضافته لزيارة معيّنة (موعد أو حالة طوارئ) — السعر قابل
     // للتعديل/التصفير من الطبيب وقت الإضافة، مستقل عن السعر الافتراضي بالكتالوج
     // ══════════════════════════════════════
-    public class VisitProcedureItem
+    public class VisitProcedureItem : IAuditable
     {
         public Guid Id { get; set; }
         public Guid ClinicId { get; set; }
@@ -1525,6 +1536,9 @@ namespace ClinicSaaS.API.Data
         public decimal? Price { get; set; }
         public Guid? DoctorId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public Appointment? Appointment { get; set; }
         public QueueEntry? QueueEntry { get; set; }

@@ -548,9 +548,14 @@ namespace ClinicSaaS.API.Controllers
         {
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
-            await _db.AppNotifications
+            // ✅ عبر SaveChangesAsync (مو ExecuteUpdateAsync) عشان يتسجل UpdatedBy/UpdatedAt
+            // تلقائياً لكل إشعار — ExecuteUpdateAsync يحدّث قاعدة البيانات مباشرة ويتجاوز
+            // آلية التدقيق (IAuditable) بالكامل
+            var unread = await _db.AppNotifications
                 .Where(n => n.ClinicId == _clinicContext.ClinicId && !n.IsRead)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(n => n.IsRead, true));
+                .ToListAsync();
+            foreach (var n in unread) n.IsRead = true;
+            await _db.SaveChangesAsync();
 
             return Ok();
         }
