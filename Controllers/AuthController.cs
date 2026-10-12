@@ -192,6 +192,8 @@ namespace ClinicSaaS.API.Controllers
                 CreatedAt = DateTime.UtcNow,
                 ExpiresAt = DateTime.UtcNow.AddDays(30),
                 IsRevoked = false,
+                UserAgent = Request.Headers.UserAgent.ToString(),
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
             };
             _db.RefreshTokens.Add(refreshToken);
             await _db.SaveChangesAsync();
@@ -243,6 +245,8 @@ namespace ClinicSaaS.API.Controllers
                 CreatedAt = DateTime.UtcNow,
                 ExpiresAt = DateTime.UtcNow.AddDays(30),
                 IsRevoked = false,
+                UserAgent = Request.Headers.UserAgent.ToString(),
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
             };
             _db.RefreshTokens.Add(newRefreshToken);
             await _db.SaveChangesAsync();
@@ -281,6 +285,48 @@ namespace ClinicSaaS.API.Controllers
             refreshToken.IsRevoked = true;
             await _db.SaveChangesAsync();
             return Ok(new { message = "تم تسجيل الخروج بنجاح" });
+        }
+
+        // GET: api/auth/sessions — أجهزة/متصفحات المستخدم الحالي المسجّلة دخول فعلياً
+        [HttpGet("sessions")]
+        [Authorize]
+        public async Task<ActionResult> GetSessions()
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid)) return Unauthorized();
+
+            var sessions = await _db.RefreshTokens
+                .Where(rt => rt.UserId == uid && !rt.IsRevoked && rt.ExpiresAt > DateTime.UtcNow)
+                .OrderByDescending(rt => rt.CreatedAt)
+                .Select(rt => new
+                {
+                    id = rt.Id,
+                    userAgent = rt.UserAgent,
+                    ipAddress = rt.IpAddress,
+                    createdAt = rt.CreatedAt,
+                    expiresAt = rt.ExpiresAt,
+                })
+                .ToListAsync();
+
+            return Ok(sessions);
+        }
+
+        // DELETE: api/auth/sessions/{id} — يسحب صلاحية جهاز معيّن بدون تغيير كلمة المرور
+        [HttpDelete("sessions/{id}")]
+        [Authorize]
+        public async Task<ActionResult> RevokeSession(Guid id)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid)) return Unauthorized();
+
+            var session = await _db.RefreshTokens.FirstOrDefaultAsync(rt => rt.Id == id);
+            if (session == null) return NotFound();
+            // ✅ ما يقدر أحد يسحب جلسة مستخدم ثاني — بس جلساته هو
+            if (session.UserId != uid) return Forbid();
+
+            session.IsRevoked = true;
+            await _db.SaveChangesAsync();
+            return Ok(new { message = "تم إنهاء الجلسة" });
         }
 
         // GET: api/auth/permissions

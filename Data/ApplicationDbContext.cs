@@ -783,7 +783,12 @@ namespace ClinicSaaS.API.Data
         public bool IsRevoked { get; set; } = false;
         public Guid? UserId { get; set; }
         public User? User { get; set; }
-      
+
+        // ✅ لشاشة "إدارة الجلسات" — يعرف المستخدم من وين مسجّل دخول، ويقدر يسحب
+        // صلاحية جهاز معيّن بدون داعي لتغيير كلمة المرور
+        public string? UserAgent { get; set; }
+        public string? IpAddress { get; set; }
+
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
