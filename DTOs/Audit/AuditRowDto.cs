@@ -10,5 +10,6 @@ namespace ClinicSaaS.API.DTOs.Audit
         public DateTime? UpdatedAt { get; set; }
         public Guid? UpdatedBy { get; set; }
         public string? UpdatedByName { get; set; }
+        public bool IsDeleted { get; set; }
     }
 }

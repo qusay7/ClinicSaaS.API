@@ -60,9 +60,13 @@ namespace ClinicSaaS.API.Controllers
             IQueryable<AuditRowDto> query;
             switch (entityType)
             {
+                // ✅ IgnoreQueryFilters() ضروري هنا — كل هذي الكيانات عليها فلتر عام
+                // "!IsDeleted" مُسجَّل بـ OnModelCreating، فأي استعلام عادي يخفي
+                // السجلات المحذوفة تلقائياً وبصمت. سجل التدقيق بالذات غرضه إنه
+                // يوضّح حتى الحذف (مين حذف ومتى) لا يخفيه
                 case "patients":
                     {
-                        var q = _db.Patients.Where(p => !p.IsDeleted).AsQueryable();
+                        var q = _db.Patients.IgnoreQueryFilters().AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(p => p.ClinicId == scopeClinicId);
                         query = q.Select(p => new AuditRowDto
                         {
@@ -72,12 +76,13 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = p.CreatedBy,
                             UpdatedAt = p.UpdatedAt,
                             UpdatedBy = p.UpdatedBy,
+                            IsDeleted = p.IsDeleted,
                         });
                         break;
                     }
                 case "appointments":
                     {
-                        var q = _db.Appointments.AsQueryable();
+                        var q = _db.Appointments.IgnoreQueryFilters().AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(a => a.ClinicId == scopeClinicId);
                         query = q.Select(a => new AuditRowDto
                         {
@@ -87,12 +92,13 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = a.CreatedBy,
                             UpdatedAt = a.UpdatedAt,
                             UpdatedBy = a.UpdatedBy,
+                            IsDeleted = a.IsDeleted,
                         });
                         break;
                     }
                 case "staff":
                     {
-                        var q = _db.Staff.Where(s => !s.IsDeleted).AsQueryable();
+                        var q = _db.Staff.IgnoreQueryFilters().AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(s => s.ClinicId == scopeClinicId);
                         query = q.Select(s => new AuditRowDto
                         {
@@ -102,12 +108,13 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = s.CreatedBy,
                             UpdatedAt = s.UpdatedAt,
                             UpdatedBy = s.UpdatedBy,
+                            IsDeleted = s.IsDeleted,
                         });
                         break;
                     }
                 case "users":
                     {
-                        var q = _db.Users.Where(u => !u.IsDeleted).AsQueryable();
+                        var q = _db.Users.IgnoreQueryFilters().AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(u => u.ClinicId == scopeClinicId);
                         query = q.Select(u => new AuditRowDto
                         {
@@ -117,12 +124,13 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = u.CreatedBy,
                             UpdatedAt = u.UpdatedAt,
                             UpdatedBy = u.UpdatedBy,
+                            IsDeleted = u.IsDeleted,
                         });
                         break;
                     }
                 case "doctors":
                     {
-                        var q = _db.Doctors.Where(d => !d.IsDeleted).AsQueryable();
+                        var q = _db.Doctors.IgnoreQueryFilters().AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(d => d.ClinicId == scopeClinicId);
                         query = q.Select(d => new AuditRowDto
                         {
@@ -132,12 +140,13 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = d.CreatedBy,
                             UpdatedAt = d.UpdatedAt,
                             UpdatedBy = d.UpdatedBy,
+                            IsDeleted = d.IsDeleted,
                         });
                         break;
                     }
                 case "invoices":
                     {
-                        var q = _db.Invoices.Where(i => !i.IsDeleted).AsQueryable();
+                        var q = _db.Invoices.IgnoreQueryFilters().AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(i => i.ClinicId == scopeClinicId);
                         query = q.Select(i => new AuditRowDto
                         {
@@ -147,11 +156,13 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = i.CreatedBy,
                             UpdatedAt = i.UpdatedAt,
                             UpdatedBy = i.UpdatedBy,
+                            IsDeleted = i.IsDeleted,
                         });
                         break;
                     }
                 case "departments":
                     {
+                        // ✅ الأقسام ما عندها IsDeleted أصلاً (تُعطَّل بـ IsActive بدل الحذف)
                         var q = _db.Departments.AsQueryable();
                         if (scopeClinicId.HasValue) q = q.Where(d => d.ClinicId == scopeClinicId);
                         query = q.Select(d => new AuditRowDto
@@ -162,6 +173,7 @@ namespace ClinicSaaS.API.Controllers
                             CreatedBy = d.CreatedBy,
                             UpdatedAt = d.UpdatedAt,
                             UpdatedBy = d.UpdatedBy,
+                            IsDeleted = !d.IsActive,
                         });
                         break;
                     }
