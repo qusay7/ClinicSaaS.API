@@ -48,7 +48,9 @@ namespace ClinicSaaS.API.Controllers
             [FromQuery] string entityType,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20,
-            [FromQuery] Guid? clinicId = null)
+            [FromQuery] Guid? clinicId = null,
+            [FromQuery] DateTime? fromDate = null,
+            [FromQuery] DateTime? toDate = null)
         {
             if (!EntityTypes.Any(e => e.Key == entityType))
                 return BadRequest("نوع غير معروف");
@@ -179,6 +181,17 @@ namespace ClinicSaaS.API.Controllers
                     }
                 default:
                     return BadRequest("نوع غير معروف");
+            }
+
+            // ✅ فلترة بفترة تاريخية — على "آخر نشاط" للسجل (نفس الحقل المستخدم
+            // بالترتيب أدناه)، يعني تاريخ الإنشاء لو ما تعدّل بعدها، أو تاريخ آخر
+            // تعديل/حذف لو تعدّل. toDate شامل لنهاية ذاك اليوم كامل.
+            if (fromDate.HasValue)
+                query = query.Where(r => (r.UpdatedAt ?? r.CreatedAt) >= fromDate.Value.Date);
+            if (toDate.HasValue)
+            {
+                var toExclusive = toDate.Value.Date.AddDays(1);
+                query = query.Where(r => (r.UpdatedAt ?? r.CreatedAt) < toExclusive);
             }
 
             var total = await query.CountAsync();
