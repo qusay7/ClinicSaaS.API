@@ -60,6 +60,12 @@ namespace ClinicSaaS.API.Controllers
             var patients = await _db.Patients
                 .CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted);
 
+            // ✅ لشريط استخدام الخطة — "مريض جديد هالشهر" مو إجمالي العمر (totalPatients
+            // أعلاه)، متوافق مع حد CanAddPatient الفعلي
+            var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var newPatientsThisMonth = await _db.Patients
+                .CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted && p.CreatedAt >= startOfMonth);
+
             var doctors = await _db.Doctors
                 .CountAsync(d => d.ClinicId == clinicId && !d.IsDeleted && d.IsActive);
             var staff = await _db.Staff
@@ -104,7 +110,7 @@ namespace ClinicSaaS.API.Controllers
                     maxPatients = subscription.Plan.MaxPatients,
                     maxDoctors = subscription.Plan.MaxDoctors,
                     maxUsers = subscription.Plan.MaxUsers,
-                    currentPatients = patients,
+                    currentPatients = newPatientsThisMonth,
                     currentDoctors = doctors,
                     hasElectronicInvoicing = subscription.Plan.HasElectronicInvoicing,
                     hasMultipleDepartments = subscription.Plan.HasMultipleDepartments

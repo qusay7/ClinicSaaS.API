@@ -234,8 +234,11 @@ namespace ClinicSaaS.API.Controllers
             var currentDoctors = await _db.Doctors
                 .CountAsync(d => d.ClinicId == s.ClinicId && !d.IsDeleted && d.IsActive);
 
+            // ✅ متوافق مع CanAddPatient — "مريض جديد هالشهر" مو إجمالي العمر،
+            // وإلا شريط الاستخدام المعروض يختلف عن الحد الفعلي المطبّق
+            var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var currentPatients = await _db.Patients
-                .CountAsync(p => p.ClinicId == s.ClinicId && !p.IsDeleted);
+                .CountAsync(p => p.ClinicId == s.ClinicId && !p.IsDeleted && p.CreatedAt >= startOfMonth);
 
             return new SubscriptionResponseDto
             {

@@ -82,11 +82,15 @@ namespace ClinicSaaS.API.Services
             if (subscription.Plan.MaxPatients == -1)
                 return (true, null);
 
-            var currentPatients = await _db.Patients
-                .CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted );
+            // ✅ حد شهري متجدد — "مريض جديد بالشهر"، مو سقف تراكمي مدى الحياة.
+            // بدون أي مهمة "تصفير" مجدولة — بما إنه الفلتر نفسه مبني على بداية
+            // الشهر الحالي، العداد يرجع صفر تلقائياً أول كل شهر بدون أي تدخل
+            var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var newPatientsThisMonth = await _db.Patients
+                .CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted && p.CreatedAt >= startOfMonth);
 
-            if (currentPatients >= subscription.Plan.MaxPatients)
-                return (false, $"وصلت للحد الأقصى ({subscription.Plan.MaxPatients} مريض) في خطتك");
+            if (newPatientsThisMonth >= subscription.Plan.MaxPatients)
+                return (false, $"وصلت للحد الأقصى ({subscription.Plan.MaxPatients} مريض جديد) لهذا الشهر في خطتك");
 
             return (true, null);
         }
