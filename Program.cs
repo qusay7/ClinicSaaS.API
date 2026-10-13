@@ -227,6 +227,9 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+// ✅ أول middleware بالترتيب — يلف كل شي تحته عشان يلتقط أي استثناء مهما كان مصدره
+app.UseMiddleware<ClinicSaaS.API.Middleware.ErrorLoggingMiddleware>();
+
 app.UseHttpsRedirection();
 app.UseRouting();
 
