@@ -69,6 +69,42 @@ namespace ClinicSaaS.API.Controllers
         }
 
         // ═══════════════════════════════════════
+        // GET: api/payments/queue/{queueEntryId}
+        // جلب تفاصيل الدفع لزيارة طوارئ محدّدة
+        // ═══════════════════════════════════════
+        [HttpGet("queue/{queueEntryId}")]
+        public async Task<ActionResult> GetByQueueEntry(Guid queueEntryId)
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var payment = await _db.PaymentDetails
+                .Include(p => p.Patient)
+                .FirstOrDefaultAsync(p =>
+                    p.QueueEntryId == queueEntryId &&
+                    p.ClinicId == _clinicContext.ClinicId);
+
+            if (payment == null)
+                return Ok(new { hasPayment = false });
+
+            return Ok(new
+            {
+                hasPayment = true,
+                id = payment.Id,
+                totalAmount = payment.TotalAmount,
+                insuranceAmount = payment.InsuranceAmount,
+                patientAmount = payment.PatientAmount,
+                amountPaid = payment.AmountPaid,
+                paymentMethod = payment.PaymentMethod,
+                isPaid = payment.IsPaid,
+                paidAt = payment.PaidAt?.ToString("yyyy-MM-dd HH:mm"),
+                patientBalance = payment.AmountPaid - payment.PatientAmount,
+                notes = payment.Notes,
+                createdAt = payment.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+                rowVersion = Convert.ToBase64String(payment.RowVersion),
+            });
+        }
+
+        // ═══════════════════════════════════════
         // POST: api/payments
         // تسجيل دفعة جديدة عند الخروج
         // ═══════════════════════════════════════
@@ -78,26 +114,58 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.HasPermission("payments.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
-            var appointment = await _db.Appointments
-                .Include(a => a.Patient)
-                .FirstOrDefaultAsync(a => a.Id == dto.AppointmentId && !a.IsDeleted);
+            if (dto.AppointmentId == null && dto.QueueEntryId == null)
+                return BadRequest(Msg(lang, "لازم تحدد موعد أو زيارة طوارئ", "Must specify an appointment or a queue entry"));
 
-            if (appointment == null)
-                return NotFound(Msg(lang, "الموعد غير موجود", "Appointment not found"));
+            Guid patientId;
+            decimal defaultTotal;
 
-            if (appointment.ClinicId != _clinicContext.ClinicId)
-                return Forbid();
+            if (dto.QueueEntryId != null)
+            {
+                // ═══ زيارة طوارئ ═══
+                var queueEntry = await _db.QueueEntries
+                    .FirstOrDefaultAsync(q => q.Id == dto.QueueEntryId && !q.IsDeleted);
 
-            // تحقق لم يُسجل دفع مسبقاً (فحص أولي — الحماية الحقيقية بالـ Unique Index + catch أدناه)
-            var existing = await _db.PaymentDetails.AnyAsync(p => p.AppointmentId == dto.AppointmentId);
-            if (existing)
-                return BadRequest(Msg(lang, "تم تسجيل الدفع مسبقاً لهذا الموعد", "Payment already recorded for this appointment"));
+                if (queueEntry == null)
+                    return NotFound(Msg(lang, "زيارة الطوارئ غير موجودة", "Queue entry not found"));
+                if (queueEntry.ClinicId != _clinicContext.ClinicId)
+                    return Forbid();
 
-            var totalAmount = dto.TotalAmount ?? (appointment.Price ?? 0);
+                var existingForQueue = await _db.PaymentDetails.AnyAsync(p => p.QueueEntryId == dto.QueueEntryId);
+                if (existingForQueue)
+                    return BadRequest(Msg(lang, "تم تسجيل الدفع مسبقاً لهذي الزيارة", "Payment already recorded for this visit"));
+
+                patientId = queueEntry.PatientId;
+                defaultTotal = queueEntry.Price ?? 0;
+            }
+            else
+            {
+                // ═══ موعد عادي ═══
+                var appointment = await _db.Appointments
+                    .Include(a => a.Patient)
+                    .FirstOrDefaultAsync(a => a.Id == dto.AppointmentId && !a.IsDeleted);
+
+                if (appointment == null)
+                    return NotFound(Msg(lang, "الموعد غير موجود", "Appointment not found"));
+                if (appointment.ClinicId != _clinicContext.ClinicId)
+                    return Forbid();
+
+                // تحقق لم يُسجل دفع مسبقاً (فحص أولي — الحماية الحقيقية بالـ Unique Index + catch أدناه)
+                var existing = await _db.PaymentDetails.AnyAsync(p => p.AppointmentId == dto.AppointmentId);
+                if (existing)
+                    return BadRequest(Msg(lang, "تم تسجيل الدفع مسبقاً لهذا الموعد", "Payment already recorded for this appointment"));
+
+                patientId = appointment.PatientId;
+                defaultTotal = appointment.Price ?? 0;
+            }
+
+            var totalAmount = dto.TotalAmount ?? defaultTotal;
 
             // ── جلب بيانات التأمين ──
             // ✅ لو الفرونت إند أرسل مبلغ التأمين صراحة (من نافذة الفاتورة الجديدة)، نستخدمه مباشرة.
-            // وإلا (نداء قديم بدون هذا الحقل)، نرجع لطريقة البحث عن InsuranceClaim كما كانت
+            // وإلا (نداء قديم بدون هذا الحقل)، نرجع لطريقة البحث عن InsuranceClaim كما كانت.
+            // ✅ InsuranceClaim مرتبط بالمواعيد العادية بس حالياً — زيارات الطوارئ تتجاوز هذا
+            // البحث (مافي مطالبات تأمين لها بعد، فجوة منفصلة معروفة)
             decimal insuranceAmount;
             decimal patientAmount;
             Guid? claimId = null;
@@ -107,23 +175,29 @@ namespace ClinicSaaS.API.Controllers
                 insuranceAmount = dto.InsuranceAmount.Value;
                 patientAmount = totalAmount - insuranceAmount;
 
-                var linkedClaim = await _db.InsuranceClaims
-                    .FirstOrDefaultAsync(c => c.AppointmentId == dto.AppointmentId);
-                if (linkedClaim != null) claimId = linkedClaim.Id;
+                if (dto.AppointmentId != null)
+                {
+                    var linkedClaim = await _db.InsuranceClaims
+                        .FirstOrDefaultAsync(c => c.AppointmentId == dto.AppointmentId);
+                    if (linkedClaim != null) claimId = linkedClaim.Id;
+                }
             }
             else
             {
                 insuranceAmount = 0;
                 patientAmount = totalAmount;
 
-                var claim = await _db.InsuranceClaims
-                    .FirstOrDefaultAsync(c => c.AppointmentId == dto.AppointmentId);
-
-                if (claim != null)
+                if (dto.AppointmentId != null)
                 {
-                    insuranceAmount = claim.InsuranceAmount;
-                    patientAmount = claim.PatientAmount;
-                    claimId = claim.Id;
+                    var claim = await _db.InsuranceClaims
+                        .FirstOrDefaultAsync(c => c.AppointmentId == dto.AppointmentId);
+
+                    if (claim != null)
+                    {
+                        insuranceAmount = claim.InsuranceAmount;
+                        patientAmount = claim.PatientAmount;
+                        claimId = claim.Id;
+                    }
                 }
             }
 
@@ -137,7 +211,8 @@ namespace ClinicSaaS.API.Controllers
                 Id = Guid.NewGuid(),
                 ClinicId = _clinicContext.ClinicId.Value,
                 AppointmentId = dto.AppointmentId,
-                PatientId = appointment.PatientId,
+                QueueEntryId = dto.QueueEntryId,
+                PatientId = patientId,
                 TotalAmount = totalAmount,
                 InsuranceAmount = insuranceAmount,
                 PatientAmount = patientAmount,
@@ -154,7 +229,7 @@ namespace ClinicSaaS.API.Controllers
             _db.PaymentDetails.Add(payment);
 
             // ✅ فحص أخير على مستوى قاعدة البيانات — يمنع الدفعة المزدوجة حتى مع التصادم اللحظي
-            // (يتطلب Unique Index على PaymentDetail.AppointmentId بالموديل)
+            // (يتطلب Unique Index مفلتر على AppointmentId/QueueEntryId بالموديل)
             try
             {
                 await _db.SaveChangesAsync();
@@ -351,7 +426,9 @@ namespace ClinicSaaS.API.Controllers
     // ═══════════════════════════════════════
     public class CreatePaymentDto
     {
-        public Guid AppointmentId { get; set; }
+        // ✅ أحدهما بس — موعد عادي أو زيارة طوارئ، مو الاثنين
+        public Guid? AppointmentId { get; set; }
+        public Guid? QueueEntryId { get; set; }
         public decimal AmountPaid { get; set; }
         public string? PaymentMethod { get; set; }
         public string? Notes { get; set; }

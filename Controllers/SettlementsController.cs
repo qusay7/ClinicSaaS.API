@@ -3,6 +3,7 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
@@ -15,6 +16,7 @@ namespace ClinicSaaS.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireActiveSubscription]
     public class SettlementsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
@@ -94,7 +96,9 @@ namespace ClinicSaaS.API.Controllers
             var unregisteredDues = unregisteredEntities.Select(a => new
             {
                 id = a.Id,
-                appointmentId = a.Id,
+                // ✅ Guid? صراحة — نفس نوع appointmentId بـ partialDues بعد ما صار AppointmentId
+                // اختياري، وإلا النوعين المجهولين يختلفوا بنيوياً ويفشل Concat أدناه
+                appointmentId = (Guid?)a.Id,
                 patientId = a.PatientId,
                 patientName = a.Patient != null ? a.Patient.FullName : "—",
                 total = a.Price!.Value,

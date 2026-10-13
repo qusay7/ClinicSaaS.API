@@ -109,9 +109,9 @@ namespace ClinicSaaS.API.Controllers
             // ✅ نجيب حالة الدفع لكل المواعيد بضربة استعلام واحدة — بدل طلب منفصل لكل صف بالقائمة
             var appointmentIds = appointments.Select(a => a.Id).ToList();
             var payments = await _db.PaymentDetails
-                .Where(p => appointmentIds.Contains(p.AppointmentId))
+                .Where(p => p.AppointmentId != null && appointmentIds.Contains(p.AppointmentId.Value))
                 .ToListAsync();
-            var paymentLookup = payments.ToDictionary(p => p.AppointmentId, p => p);
+            var paymentLookup = payments.ToDictionary(p => p.AppointmentId!.Value, p => p);
 
             var result = appointments.Select(a =>
             {
@@ -404,7 +404,7 @@ namespace ClinicSaaS.API.Controllers
             var finishedIds = finishedAppointments.Select(a => a.Id).ToList();
 
             var paymentDetails = await _db.PaymentDetails
-                .Where(p => finishedIds.Contains(p.AppointmentId))
+                .Where(p => p.AppointmentId != null && finishedIds.Contains(p.AppointmentId.Value))
                 .ToListAsync();
 
             var awaitingPayment = finishedAppointments

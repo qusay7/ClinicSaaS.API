@@ -1443,7 +1443,7 @@ namespace ClinicSaaS.API.Migrations
                         .HasPrecision(10, 3)
                         .HasColumnType("decimal(10,3)");
 
-                    b.Property<Guid>("AppointmentId")
+                    b.Property<Guid?>("AppointmentId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("ClinicId")
@@ -1489,6 +1489,9 @@ namespace ClinicSaaS.API.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("QueueEntryId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -1508,13 +1511,18 @@ namespace ClinicSaaS.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AppointmentId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[AppointmentId] IS NOT NULL");
 
                     b.HasIndex("ClinicId");
 
                     b.HasIndex("InsuranceClaimId");
 
                     b.HasIndex("PatientId");
+
+                    b.HasIndex("QueueEntryId")
+                        .IsUnique()
+                        .HasFilter("[QueueEntryId] IS NOT NULL");
 
                     b.ToTable("PaymentDetails");
                 });
@@ -2939,8 +2947,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Appointment", "Appointment")
                         .WithMany()
                         .HasForeignKey("AppointmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ClinicSaaS.API.Data.Clinic", "Clinic")
                         .WithMany()
@@ -2959,6 +2966,11 @@ namespace ClinicSaaS.API.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("ClinicSaaS.API.Data.QueueEntry", "QueueEntry")
+                        .WithMany()
+                        .HasForeignKey("QueueEntryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Appointment");
 
                     b.Navigation("Clinic");
@@ -2966,6 +2978,8 @@ namespace ClinicSaaS.API.Migrations
                     b.Navigation("InsuranceClaim");
 
                     b.Navigation("Patient");
+
+                    b.Navigation("QueueEntry");
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Procedure", b =>

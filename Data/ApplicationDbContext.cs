@@ -240,10 +240,14 @@ namespace ClinicSaaS.API.Data
                 e.Property(x => x.InsuranceBalance).HasPrecision(10, 3);
                 e.Ignore(x => x.PatientBalance); // computed property
                 e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.QueueEntry).WithMany().HasForeignKey(x => x.QueueEntryId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.InsuranceClaim).WithMany().HasForeignKey(x => x.InsuranceClaimId).OnDelete(DeleteBehavior.Restrict);
-                // ✅ يمنع وجود أكثر من دفعة لنفس الموعد (يحل مشكلة الدفعة المزدوجة)
-                e.HasIndex(x => x.AppointmentId).IsUnique();
+                // ✅ يمنع وجود أكثر من دفعة لنفس الموعد/الزيارة — لازم فلتر NOT NULL
+                // بعد ما صار AppointmentId اختياري، وإلا SQL Server يعتبر كل الـ NULLs
+                // (كل دفعات الطوارئ) تكرار لبعضها ويفشل أول دفعة طوارئ ثانية تُسجَّل
+                e.HasIndex(x => x.AppointmentId).IsUnique().HasFilter("[AppointmentId] IS NOT NULL");
+                e.HasIndex(x => x.QueueEntryId).IsUnique().HasFilter("[QueueEntryId] IS NOT NULL");
             });
 
             modelBuilder.Entity<Staff>(e => {
@@ -1245,7 +1249,10 @@ namespace ClinicSaaS.API.Data
     {
         public Guid Id { get; set; }
         public Guid ClinicId { get; set; }
-        public Guid AppointmentId { get; set; }
+        // ✅ اختياري الآن — الدفعة إما لموعد عادي أو لزيارة طوارئ (QueueEntry)، نفس
+        // نمط FK المزدوج الاختياري المستخدم أصلاً بـ VisitNote/Attachment/VisitProcedureItem
+        public Guid? AppointmentId { get; set; }
+        public Guid? QueueEntryId { get; set; }
         public Guid PatientId { get; set; }
 
         public decimal TotalAmount { get; set; }
@@ -1266,6 +1273,7 @@ namespace ClinicSaaS.API.Data
 
         public Clinic? Clinic { get; set; }
         public Appointment? Appointment { get; set; }
+        public QueueEntry? QueueEntry { get; set; }
         public Patient? Patient { get; set; }
         public InsuranceClaim? InsuranceClaim { get; set; }
         public bool IsDeleted { get; set; } = false;
