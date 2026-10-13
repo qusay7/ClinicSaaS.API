@@ -158,6 +158,16 @@ namespace ClinicSaaS.API.Controllers
             if (patient == null) return BadRequest("المريض غير موجود");
             if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
 
+            // ✅ تسجيل الخروج يقفل إضافة سجلات جديدة لحالة الطوارئ، إلا لصاحب
+            // صلاحية emergency.editdischarged (تصحيح خطأ/توثيق شي نُسي بعد الخروج)
+            if (dto.QueueEntryId.HasValue)
+            {
+                var queueEntry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == dto.QueueEntryId);
+                if (queueEntry != null && queueEntry.Status == "completed" && queueEntry.DischargedAt != null
+                    && !_clinicContext.HasPermission("emergency.editdischarged"))
+                    return Forbid();
+            }
+
             // ✅ حماية من التكرار — الفرونت اند يتتبع ملاحظة الزيارة الحالية بـ existingNoteId
             // ويحوّل لـ PUT لو موجودة، لكن لو فشل ذاك التتبع لأي سبب (إعادة تحميل، تعارض
             // توقيت...) هذا يمنع إنشاء ملاحظتين لنفس الموعد بتحديث الموجودة بدل تكرارها

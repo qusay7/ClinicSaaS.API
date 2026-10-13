@@ -446,6 +446,10 @@ namespace ClinicSaaS.API.Controllers
     // الاستقبال صلاحية تسجيل الدخول فقط، بدون صلاحية إدارة الحالة كاملة (قراءات/إجراءات/خروج)
     new { Name="emergency.checkin",     Module="emergency",     DisplayName="تسجيل دخول الطوارئ",    Group="الطوارئ"      },
     new { Name="emergency.manage",      Module="emergency",     DisplayName="إدارة لوحة ومتابعة الطوارئ", Group="الطوارئ" },
+    // ✅ بدون هذي، الحالة تُقفل كلياً بمجرد تسجيل الخروج (زي ما كانت من قبل) —
+    // هذي الصلاحية تفتح تعديل محدود (قراءات/تشخيص/إجراءات) حتى بعد الخروج، لتصحيح
+    // خطأ أو توثيق شي نُسي، بدون ما تكون متاحة افتراضياً لكل من يملك emergency.manage
+    new { Name="emergency.editdischarged", Module="emergency",   DisplayName="تعديل حالة طوارئ بعد الخروج", Group="الطوارئ" },
 
     new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
     new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },

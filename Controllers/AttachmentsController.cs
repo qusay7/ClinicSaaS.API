@@ -90,6 +90,14 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.HasPermission("patients.edit")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
+            if (queueEntryId.HasValue)
+            {
+                var queueEntry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == queueEntryId);
+                if (queueEntry != null && queueEntry.Status == "completed" && queueEntry.DischargedAt != null
+                    && !_clinicContext.HasPermission("emergency.editdischarged"))
+                    return Forbid();
+            }
+
             if (file == null || file.Length == 0)
                 return BadRequest(Msg(lang, "الملف مطلوب", "File is required"));
 

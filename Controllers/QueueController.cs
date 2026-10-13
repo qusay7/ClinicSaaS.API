@@ -369,6 +369,13 @@ namespace ClinicSaaS.API.Controllers
 			if (entry == null) return NotFound();
 			if (entry.ClinicId != _clinicContext.ClinicId) return Forbid();
 
+			// ✅ نفس قفل VisitNotesController — تسجيل الخروج يمنع إضافة إجراءات جديدة
+			// إلا لصاحب emergency.editdischarged. DischargedAt تحديداً (مو بس Status)
+			// عشان ما يأثر على "إنهاء" الطابور العادي اللي ما يحدد هذا الحقل أصلاً
+			if (entry.Status == "completed" && entry.DischargedAt != null
+				&& !_clinicContext.HasPermission("emergency.editdischarged"))
+				return Forbid();
+
 			string name = dto.Name ?? "";
 			if (dto.ProcedureId.HasValue)
 			{
@@ -421,6 +428,11 @@ namespace ClinicSaaS.API.Controllers
 			var item = await _db.VisitProcedureItems.FirstOrDefaultAsync(p => p.Id == id && p.QueueEntryId == queueEntryId);
 			if (item == null) return NotFound();
 			if (!_clinicContext.IsSuperAdmin && item.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+			var parentEntry = await _db.QueueEntries.FirstOrDefaultAsync(q => q.Id == queueEntryId);
+			if (parentEntry != null && parentEntry.Status == "completed" && parentEntry.DischargedAt != null
+				&& !_clinicContext.HasPermission("emergency.editdischarged"))
+				return Forbid();
 
 			_db.VisitProcedureItems.Remove(item);
 			await _db.SaveChangesAsync();
