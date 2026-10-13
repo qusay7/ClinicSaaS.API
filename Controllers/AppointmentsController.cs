@@ -1169,6 +1169,10 @@ namespace ClinicSaaS.API.Controllers
                 CreatedAt = DateTime.UtcNow,
             };
             _db.VisitProcedureItems.Add(item);
+            await _db.SaveChangesAsync();
+            // ✅ لازم يترتب بعد الحفظ أعلاه — RecomputeAppointmentPrice يستعلم عن
+            // VisitProcedureItems من الداتابيز مباشرة، فلو حسبنا قبل الحفظ ما كان
+            // يشمل هذا الإجراء نفسه (السعر يرجع بدون هذا البند بدل المبلغ الحقيقي)
             await RecomputeAppointmentPrice(id);
             await _db.SaveChangesAsync();
 
@@ -1186,6 +1190,7 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.IsSuperAdmin && item.ClinicId != _clinicContext.ClinicId) return Forbid();
 
             _db.VisitProcedureItems.Remove(item);
+            await _db.SaveChangesAsync();
             await RecomputeAppointmentPrice(appointmentId);
             await _db.SaveChangesAsync();
 

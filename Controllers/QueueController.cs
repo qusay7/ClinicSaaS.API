@@ -86,17 +86,23 @@ namespace ClinicSaaS.API.Controllers
 			}));
 		}
 
-		// ✅ GET: api/queue/active — للطوارئ: الحالات النشطة بالأحدث أول، فلترة
-		// اختيارية بالقسم (تُستخدم لعرض مرضى قسم الطوارئ بس، بدون التقيّد بـ"اليوم")
+		// ✅ GET: api/queue/active — للطوارئ: الحالات بالأحدث أول، فلترة اختيارية
+		// بالقسم وبالحالة (status=active الافتراضي، أو completed، أو all — عشان
+		// تابات "غير مكتمل/غير مدفوع" و"مكتمل" و"الكل" بلوحة الطوارئ). الدفعة
+		// تُقرأ من PaymentDetail الحقيقي (QueueEntry.AmountPaid/IsPaid حقول ميتة
+		// ما يكتبها أي كود) عشان فلتر "غير مدفوع" يعكس الواقع فعلاً
 		[HttpGet("active")]
-		public async Task<ActionResult> GetActive([FromQuery] Guid? departmentId)
+		public async Task<ActionResult> GetActive([FromQuery] Guid? departmentId, [FromQuery] string? status)
 		{
 			if (_clinicContext.ClinicId == null) return Unauthorized();
 
 			var query = _db.QueueEntries
-				.Where(q => q.ClinicId == _clinicContext.ClinicId
-					&& !q.IsDeleted
-					&& (q.Status == "waiting" || q.Status == "called"));
+				.Where(q => q.ClinicId == _clinicContext.ClinicId && !q.IsDeleted);
+
+			if (status == "completed")
+				query = query.Where(q => q.Status == "completed");
+			else if (status != "all")
+				query = query.Where(q => q.Status == "waiting" || q.Status == "called");
 
 			if (departmentId.HasValue)
 				query = query.Where(q => q.DepartmentId == departmentId);
@@ -107,21 +113,32 @@ namespace ClinicSaaS.API.Controllers
 				.OrderByDescending(q => q.CreatedAt)
 				.ToListAsync();
 
-			return Ok(entries.Select(q => new
+			var entryIds = entries.Select(e => e.Id).ToList();
+			var payments = await _db.PaymentDetails
+				.Where(p => p.QueueEntryId != null && entryIds.Contains(p.QueueEntryId.Value))
+				.ToDictionaryAsync(p => p.QueueEntryId!.Value);
+
+			return Ok(entries.Select(q =>
 			{
-				q.Id,
-				q.QueueNumber,
-				q.Status,
-				q.Notes,
-				q.CreatedAt,
-				q.Price,
-				q.AmountPaid,
-				q.IsPaid,
-				patientId = q.PatientId,
-				patientName = q.Patient.FullName,
-				patientPhone = q.Patient.Phone,
-				doctorId = q.DoctorId,
-				doctorName = q.Doctor?.FullName,
+				payments.TryGetValue(q.Id, out var payment);
+				return new
+				{
+					q.Id,
+					q.QueueNumber,
+					q.Status,
+					q.Notes,
+					q.CreatedAt,
+					q.Price,
+					q.DischargedAt,
+					hasPayment = payment != null,
+					amountPaid = payment?.AmountPaid,
+					isPaid = payment?.IsPaid ?? false,
+					patientId = q.PatientId,
+					patientName = q.Patient.FullName,
+					patientPhone = q.Patient.Phone,
+					doctorId = q.DoctorId,
+					doctorName = q.Doctor?.FullName,
+				};
 			}));
 		}
 
@@ -385,6 +402,10 @@ namespace ClinicSaaS.API.Controllers
 				CreatedAt = DateTime.UtcNow,
 			};
 			_db.VisitProcedureItems.Add(item);
+			await _db.SaveChangesAsync();
+			// ✅ لازم يترتب بعد الحفظ أعلاه — RecomputeQueueEntryPrice يستعلم عن
+			// VisitProcedureItems من الداتابيز مباشرة، فلو حسبنا قبل الحفظ ما كان
+			// يشمل هذا الإجراء نفسه (السعر يرجع 0 بدل المبلغ الحقيقي)
 			await RecomputeQueueEntryPrice(id);
 			await _db.SaveChangesAsync();
 
@@ -402,6 +423,7 @@ namespace ClinicSaaS.API.Controllers
 			if (!_clinicContext.IsSuperAdmin && item.ClinicId != _clinicContext.ClinicId) return Forbid();
 
 			_db.VisitProcedureItems.Remove(item);
+			await _db.SaveChangesAsync();
 			await RecomputeQueueEntryPrice(queueEntryId);
 			await _db.SaveChangesAsync();
 
