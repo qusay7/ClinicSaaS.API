@@ -79,8 +79,8 @@ namespace ClinicSaaS.API.Controllers
 				q.Notes,
 				q.CreatedAt,
 				patientId = q.PatientId,
-				patientName = q.Patient.FullName,
-				patientPhone = q.Patient.Phone,
+				patientName = q.Patient?.FullName ?? "—",
+				patientPhone = q.Patient?.Phone,
 				doctorId = q.DoctorId,
 				doctorName = q.Doctor?.FullName,
 			}));
@@ -134,8 +134,8 @@ namespace ClinicSaaS.API.Controllers
 					amountPaid = payment?.AmountPaid,
 					isPaid = payment?.IsPaid ?? false,
 					patientId = q.PatientId,
-					patientName = q.Patient.FullName,
-					patientPhone = q.Patient.Phone,
+					patientName = q.Patient?.FullName ?? "—",
+					patientPhone = q.Patient?.Phone,
 					doctorId = q.DoctorId,
 					doctorName = q.Doctor?.FullName,
 				};
@@ -169,8 +169,8 @@ namespace ClinicSaaS.API.Controllers
 				entry.IsPaid,
 				entry.DischargedAt,
 				patientId = entry.PatientId,
-				patientName = entry.Patient.FullName,
-				patientPhone = entry.Patient.Phone,
+				patientName = entry.Patient?.FullName ?? "—",
+				patientPhone = entry.Patient?.Phone,
 				doctorId = entry.DoctorId,
 				doctorName = entry.Doctor?.FullName,
 			});
@@ -229,7 +229,7 @@ namespace ClinicSaaS.API.Controllers
 						entry.Id,
 						entry.QueueNumber,
 						entry.Status,
-						patientName = entry.Patient.FullName,
+						patientName = entry.Patient?.FullName ?? "—",
 						message = $"تم تسجيل المريض — رقم الدور: {entry.QueueNumber}"
 					});
 				}
@@ -259,7 +259,7 @@ namespace ClinicSaaS.API.Controllers
 			entry.Status = "called";
 			await _db.SaveChangesAsync();
 
-			return Ok(new { message = $"تم استدعاء {entry.Patient.FullName} — رقم {entry.QueueNumber}" });
+			return Ok(new { message = $"تم استدعاء {entry.Patient?.FullName ?? "—"} — رقم {entry.QueueNumber}" });
 		}
 
 		// PUT: api/queue/{id}/complete

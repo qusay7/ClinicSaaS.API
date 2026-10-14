@@ -99,10 +99,19 @@ namespace ClinicSaaS.API.Data
             base.OnModelCreating(modelBuilder);
 
             // ✅ Appointments
+            // ✅ IsRequired(false) هون عمداً — Patient عنده فلتر عام (!IsDeleted)،
+            // ولو خلّينا العلاقة "إلزامية" (الافتراضي حسب نوع PatientId غير nullable)
+            // كان EF يولّد INNER JOIN مع Include(Patient)، فأي موعد لمريض محذوف
+            // لاحقاً يختفي بالكامل من كل القوائم رغم إنه سجل صحيح وموجود فعلاً —
+            // نفس التحذير اللي EF نفسه نبّه عليه لعلاقات تانية بالأسفل (Doctor/
+            // DoctorSchedule، DiagnosisTemplate/DiagnosisMedication). عمود
+            // PatientId بقاعدة البيانات يبقى NOT NULL زي ما هو — هذا تغيير على
+            // مستوى الاستعلام فقط (LEFT JOIN بدل INNER)، مو على المخطط
             modelBuilder.Entity<Appointment>()
                 .HasOne(a => a.Patient)
                 .WithMany(p => p.Appointments)
                 .HasForeignKey(a => a.PatientId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<Appointment>()
@@ -144,10 +153,12 @@ namespace ClinicSaaS.API.Data
                 .HasForeignKey(q => q.ClinicId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+            // ✅ IsRequired(false) — نفس سبب Appointment أعلاه، بدون تكرار الشرح
             modelBuilder.Entity<QueueEntry>()
                 .HasOne(q => q.Patient)
                 .WithMany()
                 .HasForeignKey(q => q.PatientId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.NoAction);
 
 
@@ -169,10 +180,12 @@ namespace ClinicSaaS.API.Data
                 .HasForeignKey(v => v.ClinicId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+            // ✅ IsRequired(false) — نفس سبب Appointment أعلاه
             modelBuilder.Entity<VisitNote>()
                 .HasOne(v => v.Patient)
                 .WithMany()
                 .HasForeignKey(v => v.PatientId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<VisitNote>()
@@ -217,7 +230,7 @@ namespace ClinicSaaS.API.Data
                 e.HasKey(x => x.Id);
                 e.Property(x => x.CoverageRate).HasPrecision(5, 2);
                 e.Property(x => x.MaxCoverageAmount).HasPrecision(10, 3);
-                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.InsuranceCompany).WithMany(c => c.PatientInsurances).HasForeignKey(x => x.InsuranceCompanyId).OnDelete(DeleteBehavior.Restrict);
             });
 
@@ -227,7 +240,7 @@ namespace ClinicSaaS.API.Data
                 e.Property(x => x.InsuranceAmount).HasPrecision(10, 3);
                 e.Property(x => x.PatientAmount).HasPrecision(10, 3);
                 e.Property(x => x.CoverageRate).HasPrecision(5, 2);
-                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.PatientInsurance).WithMany(p => p.Claims).HasForeignKey(x => x.PatientInsuranceId).OnDelete(DeleteBehavior.Restrict);
             });
 
@@ -241,7 +254,7 @@ namespace ClinicSaaS.API.Data
                 e.Ignore(x => x.PatientBalance); // computed property
                 e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.QueueEntry).WithMany().HasForeignKey(x => x.QueueEntryId).OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.InsuranceClaim).WithMany().HasForeignKey(x => x.InsuranceClaimId).OnDelete(DeleteBehavior.Restrict);
                 // ✅ يمنع وجود أكثر من دفعة لنفس الموعد/الزيارة — لازم فلتر NOT NULL
                 // بعد ما صار AppointmentId اختياري، وإلا SQL Server يعتبر كل الـ NULLs
@@ -284,7 +297,7 @@ namespace ClinicSaaS.API.Data
                 e.Property(x => x.PricePerSession).HasPrecision(10, 3);
                 e.Property(x => x.TotalPrice).HasPrecision(10, 3);
                 e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Doctor).WithMany().HasForeignKey(x => x.DoctorId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
             });
@@ -356,7 +369,7 @@ namespace ClinicSaaS.API.Data
             modelBuilder.Entity<Attachment>(e => {
                 e.HasKey(x => x.Id);
                 e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.NoAction);
                 e.HasOne(x => x.QueueEntry).WithMany().HasForeignKey(x => x.QueueEntryId).OnDelete(DeleteBehavior.Restrict);
             });
@@ -467,7 +480,7 @@ namespace ClinicSaaS.API.Data
                 e.Property(x => x.PayableAmount).HasPrecision(18, 9);
                 e.Property(x => x.TaxRate).HasPrecision(5, 2);
                 e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.NoAction);
-                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.NoAction);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
                 e.HasOne(x => x.PaymentDetail).WithMany().HasForeignKey(x => x.PaymentDetailId).OnDelete(DeleteBehavior.NoAction);
                 e.HasOne(x => x.SourceInvoice).WithMany().HasForeignKey(x => x.SourceInvoiceId).OnDelete(DeleteBehavior.NoAction);
                 e.HasIndex(x => new { x.ClinicId, x.InvoiceNumber }).IsUnique().HasFilter("[IsDeleted] = 0");

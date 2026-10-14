@@ -345,7 +345,7 @@ namespace ClinicSaaS.API.Controllers
                     doctorName = g.First().Doctor?.FullName ?? "—",
                     doctorSpecialty = g.First().Doctor?.Specialty ?? "",
                     appointmentCount = g.Count(),
-                    appointments = g.Select(a => new { id = a.Id, patientName = a.Patient.FullName, time = a.AppointmentDate }).ToList()
+                    appointments = g.Select(a => new { id = a.Id, patientName = a.Patient?.FullName ?? "—", time = a.AppointmentDate }).ToList()
                 })
                 .OrderByDescending(d => d.appointmentCount)
                 .ToList();
@@ -413,7 +413,7 @@ namespace ClinicSaaS.API.Controllers
                 .Select(a => new
                 {
                     appointmentId = a.Id,
-                    patientName = a.Patient.FullName,
+                    patientName = a.Patient?.FullName ?? "—",
                     doctorName = a.Doctor?.FullName,
                     checkOutTime = a.CheckOutTime,
                     totalAmount = a.Price,
@@ -427,7 +427,7 @@ namespace ClinicSaaS.API.Controllers
                 .Select(x => new
                 {
                     appointmentId = x.appt.Id,
-                    patientName = x.appt.Patient.FullName,
+                    patientName = x.appt.Patient?.FullName ?? "—",
                     doctorName = x.appt.Doctor?.FullName,
                     checkOutTime = x.appt.CheckOutTime,
                     totalAmount = x.appt.Price,
@@ -1295,8 +1295,8 @@ namespace ClinicSaaS.API.Controllers
         {
             Id = a.Id,
             PatientId = a.PatientId,
-            PatientName = a.Patient.FullName,
-            PatientNumber = a.Patient.PatientNumber,
+            PatientName = a.Patient?.FullName ?? "—",
+            PatientNumber = a.Patient?.PatientNumber ?? 0,
             AppointmentDate = a.AppointmentDate,
             DoctorId = a.DoctorId,
             DoctorName = a.Doctor?.FullName,
