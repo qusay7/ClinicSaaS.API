@@ -15,5 +15,9 @@
         public Guid? DepartmentId { get; set; }        // ✅
         public string? DepartmentName { get; set; }    // ✅ اسم القسم
         public string WorkType { get; set; } = "both"; // ✅
+        // ✅ طبيب قسم الطوارئ يتابع مرضاه عبر طابور الطوارئ (تسجيل دخول بدون
+        // موعد)، مو عبر حجز موعد عادي — تُستخدم لإخفائه من قوائم اختيار الطبيب
+        // بشاشات حجز المواعيد
+        public bool IsEmergencyDoctor { get; set; }
     }
 }

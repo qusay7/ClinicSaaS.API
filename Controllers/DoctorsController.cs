@@ -392,6 +392,7 @@ namespace ClinicSaaS.API.Controllers
             DepartmentId = d.DepartmentId,           // ✅
             DepartmentName = d.Department?.Name,     // ✅
             WorkType = d.WorkType,                   // ✅
+            IsEmergencyDoctor = d.Department?.Type == DepartmentType.Emergency,
         };
     }
 }
