@@ -57,6 +57,14 @@ namespace ClinicSaaS.API.Controllers
 			var baseQuery = _db.Appointments
 				.Where(a => a.ClinicId == clinicId && !a.IsDeleted);
 
+			// ✅ إيرادات الطوارئ — كانت غائبة كلياً عن التقارير (مبنية على
+			// Appointment.Price فقط)، فيجي "إجمالي الإيرادات" أقل من الحقيقي
+			// لأي عيادة عندها طوارئ فعّالة. نفس منهجية إيراد الموعد: نجمع سعر
+			// الزيارات المكتملة (مش فقط المحصّل فعلياً) للاتساق مع الحساب الحالي
+			var erQuery = _db.QueueEntries
+				.Where(q => q.ClinicId == clinicId && !q.IsDeleted
+					&& q.Department != null && q.Department.Type == DepartmentType.Emergency);
+
 			// ── إجماليات — تُحسب مباشرة بقاعدة البيانات، بدون تحميل الصفوف كاملة ──
 			var totalPatients = await _db.Patients.CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted);
 			var totalDoctors = await _db.Doctors.CountAsync(d => d.ClinicId == clinicId && !d.IsDeleted && d.IsActive);
@@ -64,21 +72,31 @@ namespace ClinicSaaS.API.Controllers
 			var completedCount = await baseQuery.CountAsync(a => a.Status == "completed");
 			var cancelledCount = await baseQuery.CountAsync(a => a.Status == "cancelled");
 			var scheduledCount = await baseQuery.CountAsync(a => a.Status == "scheduled" || a.Status == "confirmed");
-			var totalRevenue = await baseQuery
+			var appointmentRevenue = await baseQuery
 				.Where(a => a.Status == "completed")
 				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0;
+			var emergencyRevenue = await erQuery
+				.Where(q => q.Status == "completed")
+				.SumAsync(q => (decimal?)(q.Price ?? 0)) ?? 0;
+			var totalRevenue = appointmentRevenue + emergencyRevenue;
 
 			var completionRate = totalAppointments > 0 ? Math.Round((double)completedCount / totalAppointments * 100, 1) : 0;
 			var cancellationRate = totalAppointments > 0 ? Math.Round((double)cancelledCount / totalAppointments * 100, 1) : 0;
 
 			// ── هذا الشهر / الشهر الماضي ──
 			var appointmentsThisMonth = await baseQuery.CountAsync(a => a.AppointmentDate >= startOfMonth);
-			var revenueThisMonth = await baseQuery
+			var revenueThisMonth = (await baseQuery
 				.Where(a => a.Status == "completed" && a.AppointmentDate >= startOfMonth)
-				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0;
-			var revenueLastMonth = await baseQuery
+				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0)
+				+ (await erQuery
+				.Where(q => q.Status == "completed" && q.CreatedAt >= startOfMonth)
+				.SumAsync(q => (decimal?)(q.Price ?? 0)) ?? 0);
+			var revenueLastMonth = (await baseQuery
 				.Where(a => a.Status == "completed" && a.AppointmentDate >= lastMonth && a.AppointmentDate < startOfMonth)
-				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0;
+				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0)
+				+ (await erQuery
+				.Where(q => q.Status == "completed" && q.CreatedAt >= lastMonth && q.CreatedAt < startOfMonth)
+				.SumAsync(q => (decimal?)(q.Price ?? 0)) ?? 0);
 			var revenueGrowth = revenueLastMonth > 0
 				? Math.Round((double)(revenueThisMonth - revenueLastMonth) / (double)revenueLastMonth * 100, 1) : 0;
 
@@ -89,15 +107,21 @@ namespace ClinicSaaS.API.Controllers
 
 			// ── هذا الأسبوع ──
 			var appointmentsThisWeek = await baseQuery.CountAsync(a => a.AppointmentDate >= startOfWeek);
-			var revenueThisWeek = await baseQuery
+			var revenueThisWeek = (await baseQuery
 				.Where(a => a.Status == "completed" && a.AppointmentDate >= startOfWeek)
-				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0;
+				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0)
+				+ (await erQuery
+				.Where(q => q.Status == "completed" && q.CreatedAt >= startOfWeek)
+				.SumAsync(q => (decimal?)(q.Price ?? 0)) ?? 0);
 
 			// ── اليوم ──
 			var appointmentsToday = await baseQuery.CountAsync(a => a.AppointmentDate.Date == now.Date);
-			var revenueToday = await baseQuery
+			var revenueToday = (await baseQuery
 				.Where(a => a.Status == "completed" && a.AppointmentDate.Date == now.Date)
-				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0;
+				.SumAsync(a => (decimal?)(a.Price ?? 0)) ?? 0)
+				+ (await erQuery
+				.Where(q => q.Status == "completed" && q.CreatedAt.Date == now.Date)
+				.SumAsync(q => (decimal?)(q.Price ?? 0)) ?? 0);
 
 			// ── نطاق محدود (آخر 12 شهر) لبيانات التجميع الزمني المعقدة فقط ──
 			// هذا الجزء وحده يحتاج تحميل صفوف فعلية بالذاكرة، لكن محصور بفترة زمنية، مو كل تاريخ العيادة
@@ -106,6 +130,15 @@ namespace ClinicSaaS.API.Controllers
 				.Include(a => a.Doctor)
 				.Include(a => a.Patient)
 				.Where(a => a.ClinicId == clinicId && !a.IsDeleted && a.AppointmentDate >= twelveMonthsAgo)
+				.ToListAsync();
+
+			// ✅ لنفس نطاق الـ 12 شهر — تغذّي مخطط الإيرادات الشهري وأداء أطباء
+			// الطوارئ (اللي ما يملكوا مواعيد أساساً، فما يظهروا بـ doctorPerformance)
+			var recentErEntries = await _db.QueueEntries
+				.Include(q => q.Doctor)
+				.Include(q => q.Department)
+				.Where(q => q.ClinicId == clinicId && !q.IsDeleted && q.CreatedAt >= twelveMonthsAgo
+					&& q.Department != null && q.Department.Type == DepartmentType.Emergency)
 				.ToListAsync();
 
 			// ── أداء الأطباء (على نطاق آخر 12 شهر) ──
@@ -128,16 +161,56 @@ namespace ClinicSaaS.API.Controllers
 				.OrderByDescending(d => d.totalAppts)
 				.ToList();
 
-			// ── مخطط الإيرادات والمواعيد — آخر 12 شهر ──
-			var monthlyTrend = recentAppointments
-				.GroupBy(a => new { a.AppointmentDate.Year, a.AppointmentDate.Month })
+			// ✅ أداء أطباء الطوارئ — منفصل عن doctorPerformance لأن مصدره
+			// QueueEntries لا Appointments، وطبيب الطوارئ أصلاً مستبعد من حجز
+			// المواعيد (ما يظهر إطلاقاً بالقائمة الأخرى)
+			var emergencyDoctorPerformance = recentErEntries
+				.Where(q => q.DoctorId != null && q.Doctor != null)
+				.GroupBy(q => new { q.DoctorId, q.Doctor!.FullName, q.Doctor.Specialty })
 				.Select(g => new {
-					year = g.Key.Year,
-					month = g.Key.Month,
+					doctorId = g.Key.DoctorId,
+					doctorName = g.Key.FullName,
+					specialty = g.Key.Specialty,
+					totalVisits = g.Count(),
+					completedVisits = g.Count(q => q.Status == "completed"),
+					revenue = g.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0),
+					thisMonthVisits = g.Count(q => q.CreatedAt >= startOfMonth),
+					thisMonthRev = g.Where(q => q.Status == "completed" && q.CreatedAt >= startOfMonth).Sum(q => q.Price ?? 0),
+				})
+				.OrderByDescending(d => d.totalVisits)
+				.ToList();
+
+			// ── مخطط الإيرادات والمواعيد — آخر 12 شهر (مواعيد + طوارئ) ──
+			// ✅ نبني من اتحاد شهور المصدرين — شهر عنده طوارئ بس بدون مواعيد
+			// عادية ما لازم يختفي من المخطط كلياً
+			var apptByMonth = recentAppointments
+				.GroupBy(a => (a.AppointmentDate.Year, a.AppointmentDate.Month))
+				.ToDictionary(g => g.Key, g => new {
 					count = g.Count(),
 					completed = g.Count(a => a.Status == "completed"),
 					cancelled = g.Count(a => a.Status == "cancelled"),
 					revenue = g.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0),
+				});
+			var erByMonth = recentErEntries
+				.GroupBy(q => (q.CreatedAt.Year, q.CreatedAt.Month))
+				.ToDictionary(g => g.Key, g => new {
+					count = g.Count(),
+					completed = g.Count(q => q.Status == "completed"),
+					cancelled = g.Count(q => q.Status == "cancelled"),
+					revenue = g.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0),
+				});
+			var monthlyTrend = apptByMonth.Keys.Union(erByMonth.Keys)
+				.Select(key => {
+					apptByMonth.TryGetValue(key, out var appt);
+					erByMonth.TryGetValue(key, out var er);
+					return new {
+						year = key.Year,
+						month = key.Month,
+						count = (appt?.count ?? 0) + (er?.count ?? 0),
+						completed = (appt?.completed ?? 0) + (er?.completed ?? 0),
+						cancelled = (appt?.cancelled ?? 0) + (er?.cancelled ?? 0),
+						revenue = (appt?.revenue ?? 0) + (er?.revenue ?? 0),
+					};
 				})
 				.OrderBy(g => g.year).ThenBy(g => g.month)
 				.ToList();
@@ -230,6 +303,8 @@ namespace ClinicSaaS.API.Controllers
 				totalDoctors,
 				totalAppointments,
 				totalRevenue,
+				appointmentRevenue,
+				emergencyRevenue,
 				completedCount,
 				cancelledCount,
 				scheduledCount,
@@ -258,6 +333,7 @@ namespace ClinicSaaS.API.Controllers
 				genderDist,
 
 				doctorPerformance,
+				emergencyDoctorPerformance,
 				topPatients,
 				returningPatients,
 				returningRate,
@@ -298,21 +374,50 @@ namespace ClinicSaaS.API.Controllers
 					&& a.AppointmentDate >= fromDate && a.AppointmentDate < toDate)
 				.ToListAsync();
 
+			// ✅ إيرادات الطوارئ لنفس المدى — غابت كلياً عن هذا التقرير من قبل
+			var erEntries = await _db.QueueEntries
+				.Include(q => q.Doctor)
+				.Include(q => q.Department)
+				.Where(q => q.ClinicId == clinicId && !q.IsDeleted
+					&& q.Department != null && q.Department.Type == DepartmentType.Emergency
+					&& q.CreatedAt >= fromDate && q.CreatedAt < toDate)
+				.ToListAsync();
+
 			var newPatients = await _db.Patients
 				.CountAsync(p => p.ClinicId == clinicId && !p.IsDeleted
 					&& p.CreatedAt >= fromDate && p.CreatedAt < toDate);
 
-			var revenue = appointments.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0);
+			var appointmentRevenue = appointments.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0);
+			var emergencyRevenue = erEntries.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0);
+			var revenue = appointmentRevenue + emergencyRevenue;
 			var completed = appointments.Count(a => a.Status == "completed");
 			var cancelled = appointments.Count(a => a.Status == "cancelled");
+			var emergencyVisits = erEntries.Count;
+			var emergencyCompleted = erEntries.Count(q => q.Status == "completed");
 
-			var byDay = appointments
-				.GroupBy(a => a.AppointmentDate.Date)
-				.Select(g => new {
-					date = g.Key.ToString("yyyy-MM-dd"),
+			// ✅ بالاتحاد — يوم عنده طوارئ بس بدون مواعيد عادية ما لازم يختفي
+			var apptByDay = appointments.GroupBy(a => a.AppointmentDate.Date)
+				.ToDictionary(g => g.Key, g => new {
 					count = g.Count(),
 					completed = g.Count(a => a.Status == "completed"),
 					revenue = g.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0),
+				});
+			var erByDay = erEntries.GroupBy(q => q.CreatedAt.Date)
+				.ToDictionary(g => g.Key, g => new {
+					count = g.Count(),
+					completed = g.Count(q => q.Status == "completed"),
+					revenue = g.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0),
+				});
+			var byDay = apptByDay.Keys.Union(erByDay.Keys)
+				.Select(day => {
+					apptByDay.TryGetValue(day, out var a);
+					erByDay.TryGetValue(day, out var e);
+					return new {
+						date = day.ToString("yyyy-MM-dd"),
+						count = (a?.count ?? 0) + (e?.count ?? 0),
+						completed = (a?.completed ?? 0) + (e?.completed ?? 0),
+						revenue = (a?.revenue ?? 0) + (e?.revenue ?? 0),
+					};
 				})
 				.OrderBy(d => d.date)
 				.ToList();
@@ -329,6 +434,18 @@ namespace ClinicSaaS.API.Controllers
 				.OrderByDescending(d => d.revenue)
 				.ToList();
 
+			var emergencyDoctorPerformance = erEntries
+				.Where(q => q.DoctorId != null && q.Doctor != null)
+				.GroupBy(q => new { q.DoctorId, q.Doctor!.FullName })
+				.Select(g => new {
+					doctorName = g.Key.FullName,
+					totalVisits = g.Count(),
+					completedVisits = g.Count(q => q.Status == "completed"),
+					revenue = g.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0),
+				})
+				.OrderByDescending(d => d.revenue)
+				.ToList();
+
 			return Ok(new
 			{
 				from = fromDate.ToString("yyyy-MM-dd"),
@@ -337,11 +454,16 @@ namespace ClinicSaaS.API.Controllers
 				completed,
 				cancelled,
 				revenue,
+				appointmentRevenue,
+				emergencyRevenue,
+				emergencyVisits,
+				emergencyCompleted,
 				newPatients,
 				completionRate = appointments.Count > 0
 					? Math.Round((double)completed / appointments.Count * 100, 1) : 0,
 				byDay,
 				doctorPerformance,
+				emergencyDoctorPerformance,
 			});
 		}
 
@@ -368,17 +490,47 @@ namespace ClinicSaaS.API.Controllers
 				.OrderByDescending(a => a.AppointmentDate)
 				.ToListAsync();
 
-			var monthly = appointments
-				.GroupBy(a => new { a.AppointmentDate.Year, a.AppointmentDate.Month })
-				.Select(g => new {
-					year = g.Key.Year,
-					month = g.Key.Month,
+			// ✅ طبيب الطوارئ ما عنده مواعيد أصلاً (مستبعد من حجز المواعيد) —
+			// بدون هذا، تقريره يرجع كله أصفار رغم إنه يشتغل فعلياً عبر الطوارئ
+			var erEntries = await _db.QueueEntries
+				.Include(q => q.Patient)
+				.Include(q => q.Department)
+				.Where(q => q.DoctorId == doctorId && q.ClinicId == clinicId && !q.IsDeleted
+					&& q.Department != null && q.Department.Type == DepartmentType.Emergency)
+				.OrderByDescending(q => q.CreatedAt)
+				.ToListAsync();
+
+			var apptMonthly = appointments.GroupBy(a => (a.AppointmentDate.Year, a.AppointmentDate.Month))
+				.ToDictionary(g => g.Key, g => new {
 					count = g.Count(),
 					completed = g.Count(a => a.Status == "completed"),
 					revenue = g.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0),
+				});
+			var erMonthly = erEntries.GroupBy(q => (q.CreatedAt.Year, q.CreatedAt.Month))
+				.ToDictionary(g => g.Key, g => new {
+					count = g.Count(),
+					completed = g.Count(q => q.Status == "completed"),
+					revenue = g.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0),
+				});
+			var monthly = apptMonthly.Keys.Union(erMonthly.Keys)
+				.Select(key => {
+					apptMonthly.TryGetValue(key, out var a);
+					erMonthly.TryGetValue(key, out var e);
+					return new {
+						year = key.Year,
+						month = key.Month,
+						count = (a?.count ?? 0) + (e?.count ?? 0),
+						completed = (a?.completed ?? 0) + (e?.completed ?? 0),
+						revenue = (a?.revenue ?? 0) + (e?.revenue ?? 0),
+					};
 				})
 				.OrderBy(g => g.year).ThenBy(g => g.month)
 				.ToList();
+
+			var appointmentRevenue = appointments.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0);
+			var emergencyRevenue = erEntries.Where(q => q.Status == "completed").Sum(q => q.Price ?? 0);
+			var appointmentRevenueThisMonth = appointments.Where(a => a.Status == "completed" && a.AppointmentDate >= startOfMonth).Sum(a => a.Price ?? 0);
+			var emergencyRevenueThisMonth = erEntries.Where(q => q.Status == "completed" && q.CreatedAt >= startOfMonth).Sum(q => q.Price ?? 0);
 
 			return Ok(new
 			{
@@ -388,10 +540,16 @@ namespace ClinicSaaS.API.Controllers
 				totalAppts = appointments.Count,
 				completedAppts = appointments.Count(a => a.Status == "completed"),
 				cancelledAppts = appointments.Count(a => a.Status == "cancelled"),
-				totalRevenue = appointments.Where(a => a.Status == "completed").Sum(a => a.Price ?? 0),
+				totalEmergencyVisits = erEntries.Count,
+				completedEmergencyVisits = erEntries.Count(q => q.Status == "completed"),
+				totalRevenue = appointmentRevenue + emergencyRevenue,
+				appointmentRevenue,
+				emergencyRevenue,
 				thisMonthAppts = appointments.Count(a => a.AppointmentDate >= startOfMonth),
-				thisMonthRev = appointments.Where(a => a.Status == "completed" && a.AppointmentDate >= startOfMonth).Sum(a => a.Price ?? 0),
-				uniquePatients = appointments.Select(a => a.PatientId).Distinct().Count(),
+				thisMonthRev = appointmentRevenueThisMonth + emergencyRevenueThisMonth,
+				uniquePatients = appointments.Select(a => a.PatientId)
+					.Union(erEntries.Select(q => q.PatientId))
+					.Distinct().Count(),
 				completionRate = appointments.Count > 0
 					? Math.Round((double)appointments.Count(a => a.Status == "completed") / appointments.Count * 100, 1) : 0,
 				monthly,
@@ -401,6 +559,13 @@ namespace ClinicSaaS.API.Controllers
 					date = a.AppointmentDate.ToString("yyyy-MM-dd HH:mm"),
 					a.Status,
 					a.Price,
+				}),
+				recentEmergencyVisits = erEntries.Take(10).Select(q => new {
+					q.Id,
+					patientName = q.Patient?.FullName,
+					date = q.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+					q.Status,
+					q.Price,
 				}),
 			});
 		}
