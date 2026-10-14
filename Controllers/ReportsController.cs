@@ -3,12 +3,14 @@ using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
 	[ApiController]
 	[Route("api/[controller]")]
 	[Authorize]
+	[RequireActiveSubscription]
 	public class ReportsController : ControllerBase
 	{
 		private readonly ApplicationDbContext _db;
@@ -630,6 +632,201 @@ namespace ClinicSaaS.API.Controllers
 			};
 
 			return Ok(new { summary, items });
+		}
+
+		// ═══════════════════════════════════════
+		// GET: api/reports/activity-log
+		// سجل الحركة اليومية — مواعيد عادية + زيارات طوارئ بقائمة واحدة، بالقيمة
+		// والمدفوع والمتبقي لكل زيارة (PaymentDetail موحّد لكلا المصدرين عبر
+		// AppointmentId/QueueEntryId، نفس نظام فوترة الطوارئ المدمج أصلاً)
+		// ?date= &from= &to= &doctorId= &status= &source=appointment|emergency &page= &pageSize=
+		// ═══════════════════════════════════════
+		[HttpGet("activity-log")]
+		public async Task<ActionResult> GetActivityLog(
+			[FromQuery] string? date,
+			[FromQuery] string? from,
+			[FromQuery] string? to,
+			[FromQuery] Guid? doctorId,
+			[FromQuery] string? status,
+			[FromQuery] string? source,
+			[FromQuery] int page = 1,
+			[FromQuery] int pageSize = 50)
+		{
+			if (!_clinicContext.HasPermission("reports.view")) return Forbid();
+			if (_clinicContext.ClinicId == null) return Unauthorized();
+
+			var clinicId = _clinicContext.ClinicId.Value;
+
+			DateTime? singleDate = null, fromDate = null, toDateExclusive = null;
+			if (!string.IsNullOrEmpty(date) && DateTime.TryParse(date, out var d))
+				singleDate = d.Date;
+			else
+			{
+				if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var fd)) fromDate = fd.Date;
+				if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to, out var td)) toDateExclusive = td.Date.AddDays(1);
+			}
+
+			var items = new List<ActivityLogItem>();
+
+			if (source != "emergency")
+			{
+				var apptQuery = _db.Appointments
+					.Include(a => a.Doctor)
+					.Include(a => a.Patient)
+					.Where(a => a.ClinicId == clinicId && !a.IsDeleted);
+
+				if (singleDate.HasValue) apptQuery = apptQuery.Where(a => a.AppointmentDate.Date == singleDate.Value);
+				else
+				{
+					if (fromDate.HasValue) apptQuery = apptQuery.Where(a => a.AppointmentDate >= fromDate.Value);
+					if (toDateExclusive.HasValue) apptQuery = apptQuery.Where(a => a.AppointmentDate < toDateExclusive.Value);
+				}
+				if (doctorId.HasValue) apptQuery = apptQuery.Where(a => a.DoctorId == doctorId);
+				if (!string.IsNullOrEmpty(status)) apptQuery = apptQuery.Where(a => a.Status == status);
+
+				var appts = await apptQuery.Select(a => new
+				{
+					a.Id,
+					a.DoctorId,
+					doctorName = a.Doctor != null ? a.Doctor.FullName : "—",
+					patientName = a.Patient != null ? a.Patient.FullName : "—",
+					a.AppointmentDate,
+					a.Status,
+					a.Price,
+				}).ToListAsync();
+
+				var apptIds = appts.Select(a => a.Id).ToList();
+				var apptPayments = await _db.PaymentDetails
+					.Where(p => p.AppointmentId != null && apptIds.Contains(p.AppointmentId.Value))
+					.ToDictionaryAsync(p => p.AppointmentId!.Value);
+
+				items.AddRange(appts.Select(a =>
+				{
+					apptPayments.TryGetValue(a.Id, out var payment);
+					return new ActivityLogItem
+					{
+						Id = a.Id,
+						Source = "appointment",
+						AppointmentId = a.Id,
+						DoctorId = a.DoctorId,
+						DoctorName = a.doctorName,
+						PatientName = a.patientName,
+						Date = a.AppointmentDate,
+						Status = a.Status,
+						Price = a.Price,
+						AmountPaid = payment?.AmountPaid,
+						Remaining = a.Price != null ? a.Price - (payment?.AmountPaid ?? 0) : null,
+					};
+				}));
+			}
+
+			if (source != "appointment")
+			{
+				var queueQuery = _db.QueueEntries
+					.Include(q => q.Doctor)
+					.Include(q => q.Patient)
+					.Include(q => q.Department)
+					.Where(q => q.ClinicId == clinicId && !q.IsDeleted
+						&& q.Department != null && q.Department.Type == DepartmentType.Emergency);
+
+				if (singleDate.HasValue) queueQuery = queueQuery.Where(q => q.CreatedAt.Date == singleDate.Value);
+				else
+				{
+					if (fromDate.HasValue) queueQuery = queueQuery.Where(q => q.CreatedAt >= fromDate.Value);
+					if (toDateExclusive.HasValue) queueQuery = queueQuery.Where(q => q.CreatedAt < toDateExclusive.Value);
+				}
+				if (doctorId.HasValue) queueQuery = queueQuery.Where(q => q.DoctorId == doctorId);
+				if (!string.IsNullOrEmpty(status)) queueQuery = queueQuery.Where(q => q.Status == status);
+
+				var queueEntries = await queueQuery.Select(q => new
+				{
+					q.Id,
+					q.DoctorId,
+					doctorName = q.Doctor != null ? q.Doctor.FullName : "—",
+					patientName = q.Patient != null ? q.Patient.FullName : "—",
+					q.CreatedAt,
+					q.Status,
+					q.Price,
+				}).ToListAsync();
+
+				var queueIds = queueEntries.Select(q => q.Id).ToList();
+				var queuePayments = await _db.PaymentDetails
+					.Where(p => p.QueueEntryId != null && queueIds.Contains(p.QueueEntryId.Value))
+					.ToDictionaryAsync(p => p.QueueEntryId!.Value);
+
+				items.AddRange(queueEntries.Select(q =>
+				{
+					queuePayments.TryGetValue(q.Id, out var payment);
+					return new ActivityLogItem
+					{
+						Id = q.Id,
+						Source = "emergency",
+						QueueEntryId = q.Id,
+						DoctorId = q.DoctorId,
+						DoctorName = q.doctorName,
+						PatientName = q.patientName,
+						Date = q.CreatedAt,
+						Status = q.Status,
+						Price = q.Price,
+						AmountPaid = payment?.AmountPaid,
+						Remaining = q.Price != null ? q.Price - (payment?.AmountPaid ?? 0) : null,
+					};
+				}));
+			}
+
+			var ordered = items.OrderByDescending(i => i.Date).ToList();
+			var total = ordered.Count;
+			var paged = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+			var summary = new
+			{
+				total,
+				totalValue = ordered.Sum(i => i.Price ?? 0),
+				totalPaid = ordered.Sum(i => i.AmountPaid ?? 0),
+				totalRemaining = ordered.Sum(i => i.Remaining ?? 0),
+				completed = ordered.Count(i => i.Status == "completed"),
+				cancelled = ordered.Count(i => i.Status == "cancelled"),
+				pages = (int)Math.Ceiling((double)total / pageSize),
+				page,
+				pageSize,
+			};
+
+			return Ok(new
+			{
+				summary,
+				items = paged.Select(i => new
+				{
+					i.Id,
+					i.Source,
+					i.AppointmentId,
+					i.QueueEntryId,
+					i.DoctorId,
+					i.DoctorName,
+					i.PatientName,
+					date = i.Date.ToString("yyyy-MM-dd"),
+					time = i.Date.ToString("HH:mm"),
+					i.Status,
+					i.Price,
+					i.AmountPaid,
+					i.Remaining,
+				}),
+			});
+		}
+
+		private class ActivityLogItem
+		{
+			public Guid Id { get; set; }
+			public string Source { get; set; } = "";
+			public Guid? AppointmentId { get; set; }
+			public Guid? QueueEntryId { get; set; }
+			public Guid? DoctorId { get; set; }
+			public string? DoctorName { get; set; }
+			public string PatientName { get; set; } = "";
+			public DateTime Date { get; set; }
+			public string Status { get; set; } = "";
+			public decimal? Price { get; set; }
+			public decimal? AmountPaid { get; set; }
+			public decimal? Remaining { get; set; }
 		}
 
 		// ═══════════════════════════════════════
