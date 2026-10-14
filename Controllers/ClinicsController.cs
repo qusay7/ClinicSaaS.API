@@ -327,6 +327,94 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { clinic.IsActive });
         }
 
+        // ═══════════════════════════════════════
+        // GET: api/clinics/workload-report
+        // تقرير حجم عمل كل عيادة للأدمن — عدد مرات تجديد الاشتراك ونوعه الحالي،
+        // عدد المستخدمين، عدد المرضى، وعدد الحركات (مواعيد + طوارئ) بمدى تاريخ
+        // اختياري — يفرز الفرونت إند حسب أي عمود لمقارنة حجم العيادات
+        // ?from= &to=
+        // ═══════════════════════════════════════
+        [HttpGet("workload-report")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult> GetWorkloadReport([FromQuery] string? from, [FromQuery] string? to)
+        {
+            DateTime? fromDate = null, toDateExclusive = null;
+            if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var fd)) fromDate = fd.Date;
+            if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to, out var td)) toDateExclusive = td.Date.AddDays(1);
+
+            var clinics = await _db.Clinics.OrderBy(c => c.Name).ToListAsync();
+            var clinicIds = clinics.Select(c => c.Id).ToList();
+
+            var renewalCounts = await _db.Subscriptions
+                .Where(s => clinicIds.Contains(s.ClinicId))
+                .GroupBy(s => s.ClinicId)
+                .Select(g => new { ClinicId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ClinicId, x => x.Count);
+
+            var currentSubByClinic = (await _db.Subscriptions
+                .Include(s => s.Plan)
+                .Where(s => clinicIds.Contains(s.ClinicId) && s.IsActive)
+                .ToListAsync())
+                .GroupBy(s => s.ClinicId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.EndDate).First());
+
+            var userCounts = await _db.Users
+                .Where(u => u.ClinicId != null && clinicIds.Contains(u.ClinicId.Value) && !u.IsDeleted)
+                .GroupBy(u => u.ClinicId!.Value)
+                .Select(g => new { ClinicId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ClinicId, x => x.Count);
+
+            var patientCounts = await _db.Patients
+                .Where(p => clinicIds.Contains(p.ClinicId) && !p.IsDeleted)
+                .GroupBy(p => p.ClinicId)
+                .Select(g => new { ClinicId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ClinicId, x => x.Count);
+
+            var apptQuery = _db.Appointments.Where(a => clinicIds.Contains(a.ClinicId) && !a.IsDeleted);
+            if (fromDate.HasValue) apptQuery = apptQuery.Where(a => a.AppointmentDate >= fromDate.Value);
+            if (toDateExclusive.HasValue) apptQuery = apptQuery.Where(a => a.AppointmentDate < toDateExclusive.Value);
+            var apptCounts = await apptQuery
+                .GroupBy(a => a.ClinicId)
+                .Select(g => new { ClinicId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ClinicId, x => x.Count);
+
+            var queueQuery = _db.QueueEntries.Where(q => clinicIds.Contains(q.ClinicId) && !q.IsDeleted);
+            if (fromDate.HasValue) queueQuery = queueQuery.Where(q => q.CreatedAt >= fromDate.Value);
+            if (toDateExclusive.HasValue) queueQuery = queueQuery.Where(q => q.CreatedAt < toDateExclusive.Value);
+            var queueCounts = await queueQuery
+                .GroupBy(q => q.ClinicId)
+                .Select(g => new { ClinicId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ClinicId, x => x.Count);
+
+            var result = clinics.Select(c =>
+            {
+                renewalCounts.TryGetValue(c.Id, out var renewals);
+                currentSubByClinic.TryGetValue(c.Id, out var currentSub);
+                userCounts.TryGetValue(c.Id, out var users);
+                patientCounts.TryGetValue(c.Id, out var patients);
+                apptCounts.TryGetValue(c.Id, out var appts);
+                queueCounts.TryGetValue(c.Id, out var queues);
+                return new
+                {
+                    clinicId = c.Id,
+                    clinicName = c.Name,
+                    isActive = c.IsActive,
+                    renewalCount = renewals,
+                    currentPlanName = currentSub?.Plan?.Name,
+                    currentBillingCycle = currentSub?.BillingCycle,
+                    subscriptionActive = currentSub != null,
+                    subscriptionEndDate = currentSub?.EndDate,
+                    usersCount = users,
+                    patientsCount = patients,
+                    appointmentsCount = appts,
+                    emergencyVisitsCount = queues,
+                    activityCount = appts + queues,
+                };
+            }).ToList();
+
+            return Ok(result);
+        }
+
         // دالة مساعدة
         private static ClinicResponseDto ToResponse(Clinic c) => new ClinicResponseDto
         {
