@@ -327,8 +327,12 @@ namespace ClinicSaaS.API.Controllers
         {
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
+            // ✅ بدون Include(p => p.Patient) عمداً — PatientId غير قابل للـ null على
+            // PaymentDetail، فـ EF يعتبر العلاقة "إلزامية" ويولّد INNER JOIN مع
+            // Patient (اللي عنده فلتر !IsDeleted عام)، فأي دفعة لمريض انحذف لاحقاً
+            // تختفي بالكامل من القائمة رغم إنها سجل دفعة صحيح وموجود فعلاً —
+            // نجيب الأسماء بطلب منفصل بتجاوز الفلتر عشان نعرضها حتى لو المريض محذوف
             var query = _db.PaymentDetails
-                .Include(p => p.Patient)
                 .Include(p => p.InsuranceClaim)
                 .Where(p => p.ClinicId == _clinicContext.ClinicId);
 
@@ -343,7 +347,7 @@ namespace ClinicSaaS.API.Controllers
 
             var total = await query.CountAsync();
 
-            var payments = await query
+            var paymentRows = await query
                 .OrderByDescending(p => p.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
@@ -351,7 +355,7 @@ namespace ClinicSaaS.API.Controllers
                 {
                     p.Id,
                     p.AppointmentId,
-                    patientName = p.Patient != null ? p.Patient.FullName : "—",
+                    p.PatientId,
                     p.TotalAmount,
                     p.InsuranceAmount,
                     p.PatientAmount,
@@ -366,6 +370,30 @@ namespace ClinicSaaS.API.Controllers
                     createdAt = p.CreatedAt.ToString("yyyy-MM-dd"),
                 })
                 .ToListAsync();
+
+            var paymentPatientIds = paymentRows.Select(p => p.PatientId).Distinct().ToList();
+            var paymentPatientNames = await _db.Patients.IgnoreQueryFilters()
+                .Where(p => paymentPatientIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.FullName);
+
+            var payments = paymentRows.Select(p => new
+            {
+                p.Id,
+                p.AppointmentId,
+                patientName = paymentPatientNames.TryGetValue(p.PatientId, out var pname) ? pname : "—",
+                p.TotalAmount,
+                p.InsuranceAmount,
+                p.PatientAmount,
+                p.AmountPaid,
+                p.patientBalance,
+                p.InsuranceBalance,
+                p.PaymentMethod,
+                p.IsPaid,
+                p.paidAt,
+                p.claimNumber,
+                p.claimStatus,
+                p.createdAt,
+            }).ToList();
 
             var stats = await _db.PaymentDetails
                 .Where(p => p.ClinicId == _clinicContext.ClinicId)
