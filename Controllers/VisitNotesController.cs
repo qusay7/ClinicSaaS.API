@@ -326,6 +326,129 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(new { message = "تم تسجيل صرف الوصفة" });
         }
+
+        // ✅ GET: api/visitnotes/nursing-queue — مواعيد اليوم (scheduled) + حالات
+        // الطوارئ النشطة، كل واحد مع علاماته الحيوية الحالية إن وُجدت (آخر سجل
+        // لها قيمة)، لتسبق الطبيب بأخذ العلامات الحيوية
+        [HttpGet("nursing-queue")]
+        public async Task<ActionResult> GetNursingQueue()
+        {
+            if (!_clinicContext.HasPermission("nursing.manage")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var today = DateTime.UtcNow.Date;
+            var tomorrow = today.AddDays(1);
+
+            var appts = await _db.Appointments
+                .Include(a => a.Patient)
+                .Include(a => a.Doctor)
+                .Where(a => a.ClinicId == _clinicContext.ClinicId && !a.IsDeleted
+                    && a.Status == "scheduled"
+                    && a.AppointmentDate >= today && a.AppointmentDate < tomorrow)
+                .OrderBy(a => a.AppointmentDate)
+                .ToListAsync();
+
+            var queueEntries = await _db.QueueEntries
+                .Include(q => q.Patient)
+                .Include(q => q.Doctor)
+                .Where(q => q.ClinicId == _clinicContext.ClinicId && !q.IsDeleted && q.Status != "completed")
+                .OrderByDescending(q => q.CreatedAt)
+                .ToListAsync();
+
+            var apptIds = appts.Select(a => a.Id).ToList();
+            var queueIds = queueEntries.Select(q => q.Id).ToList();
+
+            var relatedNotes = await _db.VisitNotes
+                .Where(v => v.ClinicId == _clinicContext.ClinicId && !v.IsDeleted
+                    && ((v.AppointmentId != null && apptIds.Contains(v.AppointmentId.Value))
+                        || (v.QueueEntryId != null && queueIds.Contains(v.QueueEntryId.Value))))
+                .OrderByDescending(v => v.CreatedAt)
+                .ToListAsync();
+
+            var apptVitals = relatedNotes.Where(v => v.AppointmentId != null)
+                .GroupBy(v => v.AppointmentId!.Value).ToDictionary(g => g.Key, g => g.First());
+            var queueVitals = relatedNotes.Where(v => v.QueueEntryId != null)
+                .GroupBy(v => v.QueueEntryId!.Value).ToDictionary(g => g.Key, g => g.First());
+
+            object ToItem(string type, Guid id, Guid patientId, string patientName, string? doctorName, DateTime time, VisitNote? note) => new
+            {
+                type,
+                id,
+                patientId,
+                patientName,
+                doctorName,
+                time,
+                hasVitals = note != null && (note.BloodPressure != null || note.BloodSugar != null || note.HeartRate != null || note.RespiratoryRate != null),
+                bloodPressure = note?.BloodPressure,
+                bloodSugar = note?.BloodSugar,
+                heartRate = note?.HeartRate,
+                respiratoryRate = note?.RespiratoryRate,
+            };
+
+            var items = appts.Select(a => ToItem("appointment", a.Id, a.PatientId, a.Patient?.FullName ?? "—", a.Doctor?.FullName, a.AppointmentDate, apptVitals.GetValueOrDefault(a.Id)))
+                .Concat(queueEntries.Select(q => ToItem("emergency", q.Id, q.PatientId, q.Patient?.FullName ?? "—", q.Doctor?.FullName, q.CreatedAt, queueVitals.GetValueOrDefault(q.Id))));
+
+            return Ok(items);
+        }
+
+        // ✅ PUT: api/visitnotes/vitals — تسجيل/تحديث العلامات الحيوية فقط، قبل
+        // دخول الطبيب. لموعد عادي: تحديث على نفس سطر ملاحظة الزيارة (نفس منطق
+        // upsert بالـ Create) حتى يجدها الطبيب جاهزة لاحقاً. لحالة طوارئ: سطر
+        // جديد دائماً (نفس مبدأ الخط الزمني — كل قياس توثيق منفصل)
+        [HttpPut("vitals")]
+        public async Task<ActionResult> UpsertVitals([FromBody] UpsertVitalsDto dto)
+        {
+            if (!_clinicContext.HasPermission("nursing.manage")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Id == dto.PatientId && !p.IsDeleted);
+            if (patient == null) return BadRequest("المريض غير موجود");
+            if (patient.ClinicId != _clinicContext.ClinicId) return Forbid();
+
+            if (dto.AppointmentId.HasValue)
+            {
+                var existing = await _db.VisitNotes.FirstOrDefaultAsync(v =>
+                    v.AppointmentId == dto.AppointmentId && v.ClinicId == _clinicContext.ClinicId && !v.IsDeleted);
+                if (existing != null)
+                {
+                    existing.BloodPressure = dto.BloodPressure;
+                    existing.BloodSugar = dto.BloodSugar;
+                    existing.HeartRate = dto.HeartRate;
+                    existing.RespiratoryRate = dto.RespiratoryRate;
+                    await _db.SaveChangesAsync();
+                    return Ok(new { existing.Id, message = "تم تسجيل العلامات الحيوية" });
+                }
+            }
+
+            var note = new VisitNote
+            {
+                Id = Guid.NewGuid(),
+                ClinicId = _clinicContext.ClinicId.Value,
+                PatientId = dto.PatientId,
+                AppointmentId = dto.AppointmentId,
+                QueueEntryId = dto.QueueEntryId,
+                BloodPressure = dto.BloodPressure,
+                BloodSugar = dto.BloodSugar,
+                HeartRate = dto.HeartRate,
+                RespiratoryRate = dto.RespiratoryRate,
+                CreatedAt = DateTime.UtcNow,
+            };
+            _db.VisitNotes.Add(note);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { note.Id, message = "تم تسجيل العلامات الحيوية" });
+        }
+    }
+
+    public class UpsertVitalsDto
+    {
+        public Guid PatientId { get; set; }
+        public Guid? AppointmentId { get; set; }
+        public Guid? QueueEntryId { get; set; }
+        public string? BloodPressure { get; set; }
+        public decimal? BloodSugar { get; set; }
+        public int? HeartRate { get; set; }
+        public int? RespiratoryRate { get; set; }
     }
 
     public class CreateVisitNoteDto

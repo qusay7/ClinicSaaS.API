@@ -457,6 +457,12 @@ namespace ClinicSaaS.API.Controllers
     // ✅ الوصفة نص حر موجود أصلاً بملاحظة الزيارة — هذي بس تتيح لقسم الصيدلية
     // يشوف قائمة الوصفات غير المصروفة ويعلّمها "تم الصرف"، بدون نظام مخزون
     new { Name="pharmacy.manage",       Module="pharmacy",       DisplayName="إدارة صرف الوصفات",      Group="الصيدلية"     },
+    // ✅ نفس كيان/تحكّم طلب المختبر، بس Category="radiology" — قسم الأشعة
+    // يشوف طلباته فقط وينفّذها (يبدأ، يرفع نتيجة/صورة، يلغي)
+    new { Name="radiology.manage",      Module="radiology",      DisplayName="إدارة طلبات الأشعة",     Group="الأشعة"       },
+    // ✅ تسجيل العلامات الحيوية قبل دخول الطبيب — يكتب فقط حقول العلامات
+    // الحيوية بملاحظة الزيارة (BP/سكر/نبض/تنفس)، بدون صلاحية التشخيص/الوصفة
+    new { Name="nursing.manage",        Module="nursing",        DisplayName="تسجيل العلامات الحيوية", Group="التمريض"      },
 
     new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
     new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },

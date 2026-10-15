@@ -905,6 +905,7 @@ namespace ClinicSaaS.API.Data
         Radiology = 3,
         Laboratory = 4,
         Accounting = 5,
+        Nursing = 6,
         Other = 99
     }
 
@@ -1627,6 +1628,7 @@ namespace ClinicSaaS.API.Data
         public Guid? DoctorId { get; set; }   // ✅ مين طلب التحليل
 
         public string TestName { get; set; } = "";
+        public string Category { get; set; } = "lab";     // lab | radiology — نفس الحالة، قسمين مختلفين
         public string Status { get; set; } = "ordered";   // ordered | in_progress | completed | cancelled
         public string? Notes { get; set; }         // ملاحظة الطبيب وقت الطلب
         public string? ResultNotes { get; set; }   // ملاحظة النتيجة

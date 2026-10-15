@@ -7,10 +7,12 @@ using ClinicSaaS.API.Filters;
 
 namespace ClinicSaaS.API.Controllers
 {
-    // ✅ طلب تحليل مخبري — الطبيب يطلب (POST، صلاحية visitnotes.create نفسها
-    // المستخدمة لتوثيق الزيارة)، وقسم المختبر (lab.manage) ينفّذ: يبدأ، يرفع
-    // النتيجة (ملف مرفق عادي عبر /attachments/upload أولاً، بعدها attachmentId
-    // هون)، أو يلغي. حالة بسيطة بدون نظام مخبري كامل.
+    // ✅ طلب تحليل مخبري أو أشعة — نفس الكيان والـ workflow، يفرّقهم فقط
+    // Category ("lab"|"radiology"). الطبيب يطلب (POST، صلاحية visitnotes.create
+    // نفسها المستخدمة لتوثيق الزيارة)، وقسم المختبر (lab.manage) أو الأشعة
+    // (radiology.manage) ينفّذ حسب Category الطلب: يبدأ، يرفع النتيجة (ملف
+    // مرفق عادي عبر /attachments/upload أولاً، بعدها attachmentId هون)، أو
+    // يلغي. حالة بسيطة بدون نظام مخبري/أشعة كامل.
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
@@ -26,22 +28,23 @@ namespace ClinicSaaS.API.Controllers
             _clinicContext = clinicContext;
         }
 
-        // GET: api/laborders — قائمة/طابور المختبر، بفلترة اختيارية
-        // ?status= &patientId= &from= &to=
+        // GET: api/laborders — قائمة/طابور المختبر أو الأشعة، بفلترة اختيارية
+        // ?category=lab|radiology (افتراضي lab) &status= &patientId= &from= &to=
         [HttpGet]
         public async Task<ActionResult> GetAll(
-            [FromQuery] string? status,
-            [FromQuery] Guid? patientId,
-            [FromQuery] string? from,
-            [FromQuery] string? to)
+            [FromQuery] string category = "lab",
+            [FromQuery] string? status = null,
+            [FromQuery] Guid? patientId = null,
+            [FromQuery] string? from = null,
+            [FromQuery] string? to = null)
         {
-            if (!_clinicContext.HasPermission("lab.manage")) return Forbid();
+            if (!_clinicContext.HasPermission(PermissionFor(category))) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var query = _db.LabOrders
                 .Include(o => o.Patient)
                 .Include(o => o.Doctor)
-                .Where(o => o.ClinicId == _clinicContext.ClinicId);
+                .Where(o => o.ClinicId == _clinicContext.ClinicId && o.Category == category);
 
             if (!string.IsNullOrEmpty(status))
                 query = query.Where(o => o.Status == status);
@@ -64,7 +67,8 @@ namespace ClinicSaaS.API.Controllers
         [HttpGet("patient/{patientId}")]
         public async Task<ActionResult> GetByPatient(Guid patientId)
         {
-            if (!_clinicContext.HasPermission("visitnotes.view") && !_clinicContext.HasPermission("lab.manage")) return Forbid();
+            if (!_clinicContext.HasPermission("visitnotes.view") && !_clinicContext.HasPermission("lab.manage")
+                && !_clinicContext.HasPermission("radiology.manage")) return Forbid();
             if (_clinicContext.ClinicId == null) return Unauthorized();
 
             var orders = await _db.LabOrders
@@ -108,6 +112,7 @@ namespace ClinicSaaS.API.Controllers
                 QueueEntryId = dto.QueueEntryId,
                 DoctorId = doctorId,
                 TestName = dto.TestName.Trim(),
+                Category = dto.Category == "radiology" ? "radiology" : "lab",
                 Status = "ordered",
                 Notes = dto.Notes,
                 OrderedAt = DateTime.UtcNow,
@@ -127,9 +132,9 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}/start")]
         public async Task<ActionResult> Start(Guid id)
         {
-            if (!_clinicContext.HasPermission("lab.manage")) return Forbid();
             var order = await GetOwnedOrder(id);
             if (order == null) return NotFound();
+            if (!_clinicContext.HasPermission(PermissionFor(order.Category))) return Forbid();
             if (order.Status != "ordered") return BadRequest("الطلب ليس بحالة 'مطلوب'");
 
             order.Status = "in_progress";
@@ -143,9 +148,9 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}/complete")]
         public async Task<ActionResult> Complete(Guid id, [FromBody] CompleteLabOrderDto dto)
         {
-            if (!_clinicContext.HasPermission("lab.manage")) return Forbid();
             var order = await GetOwnedOrder(id);
             if (order == null) return NotFound();
+            if (!_clinicContext.HasPermission(PermissionFor(order.Category))) return Forbid();
             if (order.Status == "completed" || order.Status == "cancelled")
                 return BadRequest("الطلب منتهي بالفعل");
 
@@ -168,15 +173,17 @@ namespace ClinicSaaS.API.Controllers
         [HttpPut("{id}/cancel")]
         public async Task<ActionResult> Cancel(Guid id)
         {
-            if (!_clinicContext.HasPermission("lab.manage")) return Forbid();
             var order = await GetOwnedOrder(id);
             if (order == null) return NotFound();
+            if (!_clinicContext.HasPermission(PermissionFor(order.Category))) return Forbid();
             if (order.Status == "completed") return BadRequest("لا يمكن إلغاء طلب مكتمل");
 
             order.Status = "cancelled";
             await _db.SaveChangesAsync();
             return Ok(new { message = "تم إلغاء الطلب" });
         }
+
+        private static string PermissionFor(string category) => category == "radiology" ? "radiology.manage" : "lab.manage";
 
         private async Task<LabOrder?> GetOwnedOrder(Guid id)
         {
@@ -199,6 +206,7 @@ namespace ClinicSaaS.API.Controllers
             o.DoctorId,
             doctorName = o.Doctor?.FullName,
             o.TestName,
+            o.Category,
             o.Status,
             o.Notes,
             o.ResultNotes,
@@ -216,6 +224,7 @@ namespace ClinicSaaS.API.Controllers
         public Guid? QueueEntryId { get; set; }
         public Guid? DoctorId { get; set; }
         public string TestName { get; set; } = "";
+        public string Category { get; set; } = "lab";
         public string? Notes { get; set; }
     }
 
