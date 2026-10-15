@@ -93,6 +93,7 @@ namespace ClinicSaaS.API.Data
         // ══ كتالوج الإجراءات + استخدامها الفعلي بالزيارات (موعد أو طوارئ) ══
         public DbSet<Procedure> Procedures { get; set; }
         public DbSet<VisitProcedureItem> VisitProcedureItems { get; set; }
+        public DbSet<LabOrder> LabOrders { get; set; }   // ✅ جديد — طلبات التحاليل المخبرية
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -328,6 +329,20 @@ namespace ClinicSaaS.API.Data
             modelBuilder.Entity<QueueEntry>().Property(x => x.Price).HasPrecision(10, 3);
             modelBuilder.Entity<QueueEntry>().Property(x => x.AmountPaid).HasPrecision(10, 3);
             modelBuilder.Entity<QueueEntry>().HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+
+            // ✅ طلبات التحاليل — IsRequired(false) على Patient لنفس سبب كل
+            // علاقات Patient الثانية (فلتر !IsDeleted العام + PatientId إلزامي
+            // كان يولّد INNER JOIN يخفي الطلب بالكامل لو انحذف المريض لاحقاً)
+            modelBuilder.Entity<LabOrder>(e => {
+                e.HasKey(x => x.Id);
+                e.HasOne(x => x.Clinic).WithMany().HasForeignKey(x => x.ClinicId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.QueueEntry).WithMany().HasForeignKey(x => x.QueueEntryId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Doctor).WithMany().HasForeignKey(x => x.DoctorId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.ResultAttachment).WithMany().HasForeignKey(x => x.ResultAttachmentId).OnDelete(DeleteBehavior.Restrict);
+            });
+            modelBuilder.Entity<LabOrder>().HasQueryFilter(x => !x.IsDeleted);
 
             // ✅ إعدادات الطبيب المالية (سعر خاص + حصة) لكل قالب
             modelBuilder.Entity<DoctorTemplateSetting>(e => {
@@ -1589,6 +1604,44 @@ namespace ClinicSaaS.API.Data
         public QueueEntry? QueueEntry { get; set; }
         public Procedure? Procedure { get; set; }
         public Doctor? Doctor { get; set; }
+    }
+
+    // ══════════════════════════════════════
+    // ✅ طلب تحليل مخبري — الطبيب يطلب، قسم المختبر (lab.manage) ينفّذ ويرفع
+    // النتيجة. حالة بسيطة (ordered → in_progress → completed/cancelled) بدل
+    // نظام مخبري كامل — النتيجة نفسها ملف مرفق عادي (نفس Attachment الموجود)
+    // ══════════════════════════════════════
+    public class LabOrder : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid ClinicId { get; set; }
+        public Guid PatientId { get; set; }
+        public Guid? AppointmentId { get; set; }
+        public Guid? QueueEntryId { get; set; }
+        public Guid? DoctorId { get; set; }   // ✅ مين طلب التحليل
+
+        public string TestName { get; set; } = "";
+        public string Status { get; set; } = "ordered";   // ordered | in_progress | completed | cancelled
+        public string? Notes { get; set; }         // ملاحظة الطبيب وقت الطلب
+        public string? ResultNotes { get; set; }   // ملاحظة النتيجة
+        public Guid? ResultAttachmentId { get; set; }
+
+        public DateTime OrderedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsDeleted { get; set; } = false;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public Clinic? Clinic { get; set; }
+        public Patient? Patient { get; set; }
+        public Appointment? Appointment { get; set; }
+        public QueueEntry? QueueEntry { get; set; }
+        public Doctor? Doctor { get; set; }
+        public Attachment? ResultAttachment { get; set; }
     }
 
     // ══════════════════════════════════════

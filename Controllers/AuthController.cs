@@ -451,6 +451,10 @@ namespace ClinicSaaS.API.Controllers
     // خطأ أو توثيق شي نُسي، بدون ما تكون متاحة افتراضياً لكل من يملك emergency.manage
     new { Name="emergency.editdischarged", Module="emergency",   DisplayName="تعديل حالة طوارئ بعد الخروج", Group="الطوارئ" },
 
+    // ✅ طلب تحليل مخبري متاح لأي حدا يقدر يوثّق زيارة (visitnotes.create) —
+    // هذي بس لقسم المختبر نفسه: شوف قائمة الطلبات ونفّذها وارفع النتيجة
+    new { Name="lab.manage",            Module="lab",            DisplayName="إدارة طلبات المختبر",    Group="المختبر"      },
+
     new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
     new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },
     new { Name="visitnotes.edit",       Module="visitnotes",    DisplayName="تعديل ملاحظة زيارة",     Group="ملاحظات الزيارة" },

@@ -1210,6 +1210,85 @@ namespace ClinicSaaS.API.Migrations
                     b.ToTable("InvoiceItems");
                 });
 
+            modelBuilder.Entity("ClinicSaaS.API.Data.LabOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AppointmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("DoctorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("OrderedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("QueueEntryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ResultAttachmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ResultNotes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TestName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppointmentId");
+
+                    b.HasIndex("ClinicId");
+
+                    b.HasIndex("DoctorId");
+
+                    b.HasIndex("PatientId");
+
+                    b.HasIndex("QueueEntryId");
+
+                    b.HasIndex("ResultAttachmentId");
+
+                    b.ToTable("LabOrders");
+                });
+
             modelBuilder.Entity("ClinicSaaS.API.Data.NotificationLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2605,8 +2684,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany("Appointments")
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ClinicSaaS.API.Data.TreatmentPlanTemplate", "Template")
                         .WithMany()
@@ -2667,8 +2745,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ClinicSaaS.API.Data.QueueEntry", "QueueEntry")
                         .WithMany()
@@ -2813,8 +2890,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ClinicSaaS.API.Data.PatientInsurance", "PatientInsurance")
                         .WithMany("Claims")
@@ -2856,8 +2932,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ClinicSaaS.API.Data.PaymentDetail", "PaymentDetail")
                         .WithMany()
@@ -2903,6 +2978,52 @@ namespace ClinicSaaS.API.Migrations
                     b.Navigation("Template");
                 });
 
+            modelBuilder.Entity("ClinicSaaS.API.Data.LabOrder", b =>
+                {
+                    b.HasOne("ClinicSaaS.API.Data.Appointment", "Appointment")
+                        .WithMany()
+                        .HasForeignKey("AppointmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ClinicSaaS.API.Data.Clinic", "Clinic")
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ClinicSaaS.API.Data.Doctor", "Doctor")
+                        .WithMany()
+                        .HasForeignKey("DoctorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ClinicSaaS.API.Data.QueueEntry", "QueueEntry")
+                        .WithMany()
+                        .HasForeignKey("QueueEntryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ClinicSaaS.API.Data.Attachment", "ResultAttachment")
+                        .WithMany()
+                        .HasForeignKey("ResultAttachmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Appointment");
+
+                    b.Navigation("Clinic");
+
+                    b.Navigation("Doctor");
+
+                    b.Navigation("Patient");
+
+                    b.Navigation("QueueEntry");
+
+                    b.Navigation("ResultAttachment");
+                });
+
             modelBuilder.Entity("ClinicSaaS.API.Data.NotificationLog", b =>
                 {
                     b.HasOne("ClinicSaaS.API.Data.Appointment", "Appointment")
@@ -2934,8 +3055,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("InsuranceCompany");
 
@@ -2963,8 +3083,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ClinicSaaS.API.Data.QueueEntry", "QueueEntry")
                         .WithMany()
@@ -3014,8 +3133,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("Clinic");
 
@@ -3146,8 +3264,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ClinicSaaS.API.Data.TreatmentPlanTemplate", "Template")
                         .WithMany()
@@ -3241,8 +3358,7 @@ namespace ClinicSaaS.API.Migrations
                     b.HasOne("ClinicSaaS.API.Data.Patient", "Patient")
                         .WithMany()
                         .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ClinicSaaS.API.Data.QueueEntry", "QueueEntry")
                         .WithMany()
