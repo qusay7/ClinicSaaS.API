@@ -1075,6 +1075,12 @@ namespace ClinicSaaS.API.Data
         // جنب البيانات المجمّعة تلقائياً (تشخيص/وصفة/علامات حيوية) بتقرير الحالة
         public string? ReportNotes { get; set; }
 
+        // ✅ تتبّع صرف الوصفة — الوصفة نص حر موجود أصلاً (Prescription)، هذي
+        // بس حالة "تم الصرف" بسيطة لقسم الصيدلية، بدون مخزون أو بنود منفصلة
+        public bool IsDispensed { get; set; } = false;
+        public DateTime? DispensedAt { get; set; }
+        public Guid? DispensedBy { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public bool IsDeleted { get; set; } = false;
 

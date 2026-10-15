@@ -2537,6 +2537,12 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<string>("Diagnosis")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTime?>("DispensedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("DispensedBy")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DoctorId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2544,6 +2550,9 @@ namespace ClinicSaaS.API.Migrations
                         .HasColumnType("int");
 
                     b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDispensed")
                         .HasColumnType("bit");
 
                     b.Property<DateTime?>("NextVisitDate")

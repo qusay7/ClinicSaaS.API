@@ -266,6 +266,66 @@ namespace ClinicSaaS.API.Controllers
 
             return Ok(new { message = "تم تحديث ملاحظات الزيارة" });
         }
+
+        // ✅ GET: api/visitnotes/pharmacy-queue — كل وصفة مسجّلة فعلياً بملاحظة
+        // زيارة (نص حر موجود أصلاً)، مع حالة الصرف. ?dispensed=true|false &from= &to=
+        [HttpGet("pharmacy-queue")]
+        public async Task<ActionResult> GetPharmacyQueue(
+            [FromQuery] bool? dispensed,
+            [FromQuery] string? from,
+            [FromQuery] string? to)
+        {
+            if (!_clinicContext.HasPermission("pharmacy.manage")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var query = _db.VisitNotes
+                .Include(v => v.Patient)
+                .Include(v => v.Doctor)
+                .Where(v => v.ClinicId == _clinicContext.ClinicId && !v.IsDeleted
+                    && v.Prescription != null && v.Prescription != "");
+
+            if (dispensed.HasValue)
+                query = query.Where(v => v.IsDispensed == dispensed);
+            if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var fromDate))
+                query = query.Where(v => v.CreatedAt >= fromDate);
+            if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to, out var toDate))
+                query = query.Where(v => v.CreatedAt < toDate.AddDays(1));
+
+            var notes = await query
+                .OrderByDescending(v => v.CreatedAt)
+                .ToListAsync();
+
+            return Ok(notes.Select(v => new
+            {
+                v.Id,
+                patientName = v.Patient?.FullName ?? "—",
+                doctorName = v.Doctor?.FullName,
+                v.Prescription,
+                v.IsDispensed,
+                v.DispensedAt,
+                v.CreatedAt,
+            }));
+        }
+
+        // ✅ PUT: api/visitnotes/{id}/dispense — يعلّم الوصفة "تم الصرف"
+        [HttpPut("{id}/dispense")]
+        public async Task<ActionResult> Dispense(Guid id)
+        {
+            if (!_clinicContext.HasPermission("pharmacy.manage")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var note = await _db.VisitNotes
+                .FirstOrDefaultAsync(v => v.Id == id && v.ClinicId == _clinicContext.ClinicId && !v.IsDeleted);
+            if (note == null) return NotFound();
+            if (note.IsDispensed) return BadRequest("تم صرف هذي الوصفة بالفعل");
+
+            note.IsDispensed = true;
+            note.DispensedAt = DateTime.UtcNow;
+            note.DispensedBy = _clinicContext.UserId;
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "تم تسجيل صرف الوصفة" });
+        }
     }
 
     public class CreateVisitNoteDto

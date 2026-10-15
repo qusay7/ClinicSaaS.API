@@ -454,6 +454,9 @@ namespace ClinicSaaS.API.Controllers
     // ✅ طلب تحليل مخبري متاح لأي حدا يقدر يوثّق زيارة (visitnotes.create) —
     // هذي بس لقسم المختبر نفسه: شوف قائمة الطلبات ونفّذها وارفع النتيجة
     new { Name="lab.manage",            Module="lab",            DisplayName="إدارة طلبات المختبر",    Group="المختبر"      },
+    // ✅ الوصفة نص حر موجود أصلاً بملاحظة الزيارة — هذي بس تتيح لقسم الصيدلية
+    // يشوف قائمة الوصفات غير المصروفة ويعلّمها "تم الصرف"، بدون نظام مخزون
+    new { Name="pharmacy.manage",       Module="pharmacy",       DisplayName="إدارة صرف الوصفات",      Group="الصيدلية"     },
 
     new { Name="visitnotes.view",       Module="visitnotes",    DisplayName="عرض ملاحظات الزيارة",    Group="ملاحظات الزيارة" },
     new { Name="visitnotes.create",     Module="visitnotes",    DisplayName="إضافة ملاحظة زيارة",     Group="ملاحظات الزيارة" },
