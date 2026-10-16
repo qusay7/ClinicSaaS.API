@@ -21,3 +21,20 @@ jobs:
       # سبق وحكينا عنها)، فـ build نظيف هو أقل شي نقدر نضمنه قبل أي دمج
       - name: Build
         run: dotnet build --no-restore --configuration Release
+
+  # ✅ CD — ينفّذ deploy.ps1 الموجود فعلياً على السيرفر، بدون أي تغيير عليه.
+  # يشتغل فقط بعد نجاح build، وفقط على push حقيقي لـ main (لا PR)، وفقط على
+  # الـ self-hosted runner المثبّت على سيرفر الإنتاج (deploy.ps1 يتحكم بخدمة
+  # Windows محلية، فلا يمكن تشغيله على runner سحابي من GitHub).
+  # environment: production يفرض موافقة يدوية (Settings → Environments →
+  # production → Required reviewers) قبل تنفيذ أي خطوة هنا — خط الرجعة: لو
+  # صار خطأ، لا توافق، أو عطّل الـ workflow من تبويب Actions بضغطة واحدة
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: [self-hosted, clinicsaas-api]
+    environment: production
+    steps:
+      - name: Run deploy.ps1
+        shell: powershell
+        run: C:\Projects\ClinicSaaS.API\deploy.ps1
