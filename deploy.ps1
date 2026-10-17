@@ -54,9 +54,11 @@ if ($LASTEXITCODE -ne 0) {
 # so skip migrations entirely when running as SYSTEM instead of failing the
 # whole deploy on something no code change here can fix. Run them yourself,
 # interactively, whenever you add a new migration (same as always).
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-if ($currentUser -eq 'NT AUTHORITY\SYSTEM') {
-    Write-Host "`nSkipping migrations - running as $currentUser, which has no LocalDB instance. Run 'dotnet ef database update' yourself interactively if this deploy includes a new migration." -ForegroundColor Yellow
+# $env:USERNAME is the reliable check here - WindowsIdentity.GetCurrent().Name
+# did NOT match 'NT AUTHORITY\SYSTEM' as expected when this actually ran as
+# SYSTEM (first attempt at this check), so don't reuse that API for this.
+if ($env:USERNAME -eq 'SYSTEM') {
+    Write-Host "`nSkipping migrations - running as $env:USERDOMAIN\$env:USERNAME, which has no LocalDB instance. Run 'dotnet ef database update' yourself interactively if this deploy includes a new migration." -ForegroundColor Yellow
 } else {
     Step "Applying any pending migrations to the real database"
     # Explicitly match the service's real environment so we read the correct
