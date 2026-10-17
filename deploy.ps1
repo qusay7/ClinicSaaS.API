@@ -32,6 +32,18 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+Step "Restoring local dotnet tools (dotnet-ef)"
+# A global "dotnet tool install" only lives under the account that ran it, so
+# whichever account runs this script (an interactive user, a CI runner's own
+# service account, ...) needs dotnet-ef resolvable without depending on any
+# specific account's global tool state. The local manifest at
+# .config/dotnet-tools.json makes `dotnet ef` resolve regardless of account.
+dotnet tool restore
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`nTOOL RESTORE FAILED - stopping here. Service stays down on purpose." -ForegroundColor Red
+    exit 1
+}
+
 Step "Applying any pending migrations to the real database"
 # Explicitly match the service's real environment so we read the correct
 # appsettings.Development.json instead of falling back to something else.
