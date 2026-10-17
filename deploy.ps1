@@ -21,6 +21,11 @@ Start-Sleep -Seconds 1
 
 Step "Pulling latest code from main"
 Set-Location $root
+# ✅ git refuses to operate on a repo owned by a different Windows account
+# than the one running it ("dubious ownership") - hit this exact issue on
+# the frontend repo under the CD runner's SYSTEM account. --add is a no-op
+# if the entry already exists, so safe to run on every invocation.
+git config --global --add safe.directory "$($root -replace '\\','/')"
 git pull origin main
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nGIT PULL FAILED - stopping here. The server likely still has uncommitted local changes (check 'git status'). Deploying now would silently rebuild the OLD code." -ForegroundColor Red
