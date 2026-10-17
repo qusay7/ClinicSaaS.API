@@ -1,8 +1,11 @@
 # ══════════════════════════════════════════════════════════════════════════
-# Backend deploy: stop service, pull latest, build, apply pending migrations,
-# restart, health-check. Stops immediately on any failure instead of leaving
-# the service half-updated (that's exactly what caused the 2026-09-27 outage).
+# Backend deploy: stop service, pull latest, build, apply pending migrations
+# (when run interactively - see note below), restart, health-check. Stops
+# immediately on any failure instead of leaving the service half-updated
+# (that's exactly what caused the 2026-09-27 outage).
 # Usage: open PowerShell as Administrator in this folder and run: .\deploy.ps1
+# Also runs unattended via CD (NT AUTHORITY\SYSTEM) on push to main, with
+# migrations skipped there - see the LocalDB note at that step.
 # ══════════════════════════════════════════════════════════════════════════
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -44,16 +47,28 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-Step "Applying any pending migrations to the real database"
-# Explicitly match the service's real environment so we read the correct
-# appsettings.Development.json instead of falling back to something else.
-$env:ASPNETCORE_ENVIRONMENT = 'Development'
-dotnet ef database update
-$migrateExit = $LASTEXITCODE
-Remove-Item Env:\ASPNETCORE_ENVIRONMENT
-if ($migrateExit -ne 0) {
-    Write-Host "`nMIGRATION FAILED - check the error above. Service stays down on purpose." -ForegroundColor Red
-    exit 1
+# ✅ appsettings.Development.json points at (localdb)\MSSQLLocalDB — LocalDB
+# is a per-interactive-user database engine by design (Microsoft's own docs:
+# not for services/production). NT AUTHORITY\SYSTEM (the CD runner account)
+# has no LocalDB instance of its own and never will, no matter the password —
+# so skip migrations entirely when running as SYSTEM instead of failing the
+# whole deploy on something no code change here can fix. Run them yourself,
+# interactively, whenever you add a new migration (same as always).
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+if ($currentUser -eq 'NT AUTHORITY\SYSTEM') {
+    Write-Host "`nSkipping migrations - running as $currentUser, which has no LocalDB instance. Run 'dotnet ef database update' yourself interactively if this deploy includes a new migration." -ForegroundColor Yellow
+} else {
+    Step "Applying any pending migrations to the real database"
+    # Explicitly match the service's real environment so we read the correct
+    # appsettings.Development.json instead of falling back to something else.
+    $env:ASPNETCORE_ENVIRONMENT = 'Development'
+    dotnet ef database update
+    $migrateExit = $LASTEXITCODE
+    Remove-Item Env:\ASPNETCORE_ENVIRONMENT
+    if ($migrateExit -ne 0) {
+        Write-Host "`nMIGRATION FAILED - check the error above. Service stays down on purpose." -ForegroundColor Red
+        exit 1
+    }
 }
 
 Step "Starting service"
