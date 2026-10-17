@@ -54,11 +54,14 @@ if ($LASTEXITCODE -ne 0) {
 # so skip migrations entirely when running as SYSTEM instead of failing the
 # whole deploy on something no code change here can fix. Run them yourself,
 # interactively, whenever you add a new migration (same as always).
-# $env:USERNAME is the reliable check here - WindowsIdentity.GetCurrent().Name
-# did NOT match 'NT AUTHORITY\SYSTEM' as expected when this actually ran as
-# SYSTEM (first attempt at this check), so don't reuse that API for this.
-if ($env:USERNAME -eq 'SYSTEM') {
-    Write-Host "`nSkipping migrations - running as $env:USERDOMAIN\$env:USERNAME, which has no LocalDB instance. Run 'dotnet ef database update' yourself interactively if this deploy includes a new migration." -ForegroundColor Yellow
+# Detecting the SYSTEM account itself kept failing (WindowsIdentity.Name and
+# $env:USERNAME both came back wrong under the Actions runner's child
+# process - it sanitizes/overrides the env it hands to job steps). Check for
+# the actual thing that matters instead: are we inside GitHub Actions at
+# all. GITHUB_ACTIONS is set to 'true' by the platform itself on every job,
+# on every OS - that's the one signal guaranteed not to lie here.
+if ($env:GITHUB_ACTIONS -eq 'true') {
+    Write-Host "`nSkipping migrations - running inside GitHub Actions (CD), whose runner account has no LocalDB instance. Run 'dotnet ef database update' yourself interactively if this deploy includes a new migration." -ForegroundColor Yellow
 } else {
     Step "Applying any pending migrations to the real database"
     # Explicitly match the service's real environment so we read the correct
