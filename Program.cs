@@ -85,6 +85,10 @@ builder.Services.AddHostedService<ReminderBackgroundService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IJoFotaraService, JoFotaraService>();
 builder.Services.AddScoped<IInvoiceXmlBuilder, InvoiceXmlBuilder>();
+// ✅ نسخ احتياطي تلقائي لقاعدة البيانات كاملة إلى Azure Blob Storage —
+// معطَّل افتراضياً عبر BackupSettings:Enabled حتى يُفعَّل عند أول عميل حقيقي
+builder.Services.AddScoped<IBackupService, BackupService>();
+builder.Services.AddHostedService<BackupBackgroundService>();
 // ══════════════════════════════════════
 // 🏢 Clinic Context & Services
 // ══════════════════════════════════════
