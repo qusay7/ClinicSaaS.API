@@ -77,9 +77,16 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // ══════════════════════════════════════
 // 🔔 Notifications & Background Services
 // ══════════════════════════════════════
-builder.Services.AddHttpClient<INotificationService, NotificationService>();
+// ✅ بدون مهلة صريحة هون، HttpClient يعتمد الافتراضي 100 ثانية — لو خدمة
+// الواتساب (Baileys) علّقت أو صارت بطيئة، أي طلب حجز/تعديل/إلغاء موعد يبقى
+// ماسك اتصال قاعدة بياناته طول هالمدة بانتظار رد واتساب، لحد ما يمتلئ pool
+// الاتصالات بالكامل ويعلّق الموقع كله (صار فعلياً — Cloudflare رجّع 524
+// بعد بالضبط 100 ثانية). 15 ثانية كافية جداً لخدمة محلية على نفس السيرفر
+builder.Services.AddHttpClient<INotificationService, NotificationService>()
+    .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddScoped<INotificationService, NotificationService>();
-builder.Services.AddHttpClient<IWhatsAppConnectionService, WhatsAppConnectionService>();
+builder.Services.AddHttpClient<IWhatsAppConnectionService, WhatsAppConnectionService>()
+    .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddScoped<IWhatsAppConnectionService, WhatsAppConnectionService>();
 builder.Services.AddHostedService<ReminderBackgroundService>();
 builder.Services.AddHttpClient();
