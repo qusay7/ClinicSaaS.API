@@ -789,16 +789,18 @@ namespace ClinicSaaS.API.Controllers
                 if (slotDuration <= 0)
                     slotDuration = 15;
 
-                var current = startTime;
+                // ✅ نحسب المدة الكلية بالدقائق كرقم صحيح ونتنقّل بعداد صحيح،
+                // بدل مقارنة TimeOnly مباشرة — TimeOnly.AddMinutes يلتفّ تلقائياً
+                // عند تجاوز منتصف الليل (23:59:59 + دقيقة ترجع لـ00:00:00)، فلو
+                // دوام الطبيب/العيادة ينتهي عند 23:59:59 بالضبط ("طول اليوم")،
+                // شرط "current < endTime" ما يتحقق أبداً بعد اللفة، وتصير حلقة
+                // لا نهائية فعلية تسحب thread كامل للأبد (صار هذا فعلياً بالإنتاج)
+                var totalMinutes = (int)(endTime.ToTimeSpan() - startTime.ToTimeSpan()).TotalMinutes;
 
-                while (current < endTime)
+                for (var elapsed = 0; elapsed + slotDuration <= totalMinutes; elapsed += slotDuration)
                 {
-                    var slotStart = current;
-                    var slotEnd = current.AddMinutes(slotDuration);
-
-                    // لا ننشئ Slot يتجاوز نهاية دوام الطبيب أو العيادة
-                    if (slotEnd > endTime)
-                        break;
+                    var slotStart = startTime.AddMinutes(elapsed);
+                    var slotEnd = startTime.AddMinutes(elapsed + slotDuration);
 
                     // -------------------------------------------------
                     // DateTime للـ Slot
@@ -898,8 +900,6 @@ namespace ClinicSaaS.API.Controllers
                     }
 
                     day.Slots.Add(slot);
-
-                    current = slotEnd;
                 }
 
                 result.Days.Add(day);
