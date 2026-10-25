@@ -468,6 +468,9 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<string>("Website")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("WhatsAppConnected")
+                        .HasColumnType("bit");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Subdomain")

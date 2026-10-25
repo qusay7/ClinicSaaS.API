@@ -167,6 +167,22 @@ namespace ClinicSaaS.API.Services
                     return false;
                 }
 
+                // 2️⃣-أ التحقق من اتصال الواتساب فعلياً — بدون هذا الفحص، أي محاولة
+                // إرسال لعيادة ما ربطت واتساب أصلاً (أو انقطعت جلستها) كانت تحاول
+                // الاتصال بخدمة Baileys عبر الشبكة بكل مرة، وتنتظر حتى 15 ثانية
+                // (المهلة الجديدة) قبل ما تفشل. مع عشرات التذكيرات بكل دورة خلفية
+                // كل 5 دقائق، هذا يستنزف موارد السيرفر باستمرار طالما واتساب مفصول.
+                // الفحص هون صفري التكلفة (قراءة من قاعدة بيانات محمّلة أصلاً، بدون
+                // أي اتصال شبكة) ويتخطى المحاولة بالكامل لو الحالة المعروفة = غير متصل
+                if (!clinic.WhatsAppConnected)
+                {
+                    _logger.LogWarning(
+                        "⚠️ Skipping WhatsApp send: clinic {ClinicId} is not connected (no network call attempted)",
+                        clinicId);
+
+                    return false;
+                }
+
                 // 2️⃣ التحقق من تفعيل الإشعارات
                 if (!clinic.IsNotificationsEnabled)
                 {

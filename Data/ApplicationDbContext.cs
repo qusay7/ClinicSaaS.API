@@ -681,6 +681,14 @@ namespace ClinicSaaS.API.Data
         public string? UltramsgApiToken { get; set; }
         public bool IsNotificationsEnabled { get; set; } = true;
 
+        // ✅ حالة اتصال الواتساب الفعلية، مخزّنة محلياً (آخر نتيجة معروفة من خدمة
+        // الواتساب الداخلية) — بدونها، SendWhatsApp كان يحاول الاتصال بالخدمة
+        // عبر الشبكة بكل مرة حتى لو العيادة ما ربطت واتساب إطلاقاً، فلو الخدمة
+        // عالقة/معطّلة، ذلك الانتظار (حتى لو محدود الآن بـ15 ثانية) يصير بلا داعٍ
+        // لعيادة اختارت أصلاً عدم استخدام هذي الميزة. افتراضياً false — عيادة لم
+        // تربط واتساب أبداً لا تُنشئ أي اتصال شبكة بالخدمة إطلاقاً
+        public bool WhatsAppConnected { get; set; } = false;
+
         // ✅ إعدادات الفوترة الضريبية (JoFotara)
         // ✅ إعدادات الفوترة الضريبية (JoFotara)
         public string TaxRegistrationType { get; set; } = "income";   // income / sales

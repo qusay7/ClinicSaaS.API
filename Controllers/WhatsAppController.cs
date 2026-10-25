@@ -1,7 +1,9 @@
+using ClinicSaaS.API.Data;
 using ClinicSaaS.API.Filters;
 using ClinicSaaS.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace ClinicSaaS.API.Controllers
 {
@@ -14,12 +16,14 @@ namespace ClinicSaaS.API.Controllers
     [RequireActiveSubscription]
     public class WhatsAppController : ControllerBase
     {
+        private readonly ApplicationDbContext _db;
         private readonly IClinicContext _clinicContext;
         private readonly IWhatsAppConnectionService _whatsAppConnection;
         private readonly INotificationService _notificationService;
 
-        public WhatsAppController(IClinicContext clinicContext, IWhatsAppConnectionService whatsAppConnection, INotificationService notificationService)
+        public WhatsAppController(ApplicationDbContext db, IClinicContext clinicContext, IWhatsAppConnectionService whatsAppConnection, INotificationService notificationService)
         {
+            _db = db;
             _clinicContext = clinicContext;
             _whatsAppConnection = whatsAppConnection;
             _notificationService = notificationService;
@@ -34,6 +38,14 @@ namespace ClinicSaaS.API.Controllers
 
             var (status, qrDataUrl, phoneNumber) = await _whatsAppConnection.GetStateAsync(_clinicContext.ClinicId.Value);
             var (used, limit) = await _notificationService.GetMessageQuota(_clinicContext.ClinicId.Value);
+
+            // ✅ نخزّن آخر حالة معروفة محلياً — SendWhatsApp يعتمد عليها ليتجنب
+            // محاولة الاتصال بالخدمة إطلاقاً لو العيادة غير متصلة
+            var isConnected = status == "connected";
+            await _db.Clinics
+                .Where(c => c.Id == _clinicContext.ClinicId.Value && c.WhatsAppConnected != isConnected)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.WhatsAppConnected, isConnected));
+
             return Ok(new { status, qrDataUrl, phoneNumber, messagesUsedToday = used, messagesLimit = limit });
         }
 
