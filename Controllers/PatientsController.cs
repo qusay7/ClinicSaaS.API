@@ -396,6 +396,20 @@ namespace ClinicSaaS.API.Controllers
                     return BadRequest("رقم الهوية الوطني مستخدم مسبقاً لمريض آخر بهذي العيادة");
             }
 
+            // ✅ السماح بتعديل رقم المريض يدوياً — لازم يبقى فريد داخل نفس العيادة
+            if (dto.PatientNumber.HasValue)
+            {
+                if (dto.PatientNumber.Value <= 0)
+                    return BadRequest("رقم المريض يجب أن يكون رقماً صحيحاً أكبر من صفر");
+
+                var numberTaken = await _db.Patients.AnyAsync(p =>
+                    p.Id != id && p.ClinicId == patient.ClinicId && !p.IsDeleted && p.PatientNumber == dto.PatientNumber.Value);
+                if (numberTaken)
+                    return BadRequest($"رقم المريض #{dto.PatientNumber.Value} مستخدم مسبقاً لمريض آخر بهذي العيادة");
+
+                patient.PatientNumber = dto.PatientNumber.Value;
+            }
+
             patient.FullName = dto.FullName;
             patient.DateOfBirth = dto.DateOfBirth;
             patient.Phone = dto.Phone;

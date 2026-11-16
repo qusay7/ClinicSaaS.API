@@ -6,6 +6,9 @@
 
     public class UpdatePatientDto
     {
+        // ✅ اختياري — افتراضياً النظام يولّده تلقائياً، لكن نسمح للمستخدم
+        // بتعديله يدوياً لاحقاً (مثلاً لمطابقته مع رقم ملف ورقي قديم)
+        public int? PatientNumber { get; set; }
         public string FullName { get; set; } = default!;
         public DateTime? DateOfBirth { get; set; }
         public string? Phone { get; set; }
