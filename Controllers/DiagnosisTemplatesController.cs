@@ -33,6 +33,7 @@ namespace ClinicSaaS.API.Controllers
 
             var templates = await _db.DiagnosisTemplates
                 .Include(t => t.Medications)
+                .Include(t => t.Tests)
                 .Where(t => t.ClinicId == _clinicContext.ClinicId && t.IsActive)
                 .OrderBy(t => t.Name)
                 .Select(t => new
@@ -42,6 +43,9 @@ namespace ClinicSaaS.API.Controllers
                     medications = t.Medications
                         .OrderBy(m => m.SortOrder)
                         .Select(m => new { m.Id, m.DrugName, m.Instructions }),
+                    tests = t.Tests
+                        .OrderBy(x => x.SortOrder)
+                        .Select(x => new { x.Id, x.TestName, x.Category }),
                 })
                 .ToListAsync();
 
@@ -74,6 +78,7 @@ namespace ClinicSaaS.API.Controllers
 
             var template = await _db.DiagnosisTemplates
                 .Include(t => t.Medications)
+                .Include(t => t.Tests)
                 .FirstOrDefaultAsync(t => t.Id == id && t.ClinicId == _clinicContext.ClinicId);
 
             if (template == null) return NotFound();
@@ -85,6 +90,9 @@ namespace ClinicSaaS.API.Controllers
                 medications = template.Medications
                     .OrderBy(m => m.SortOrder)
                     .Select(m => new { m.Id, m.DrugName, m.Instructions }),
+                tests = template.Tests
+                    .OrderBy(x => x.SortOrder)
+                    .Select(x => new { x.Id, x.TestName, x.Category }),
             });
         }
 
@@ -114,6 +122,15 @@ namespace ClinicSaaS.API.Controllers
                         SortOrder = i,
                     })
                     .ToList(),
+                Tests = dto.Tests
+                    .Select((x, i) => new DiagnosisTest
+                    {
+                        Id = Guid.NewGuid(),
+                        TestName = x.TestName,
+                        Category = x.Category == "radiology" ? "radiology" : "lab",
+                        SortOrder = i,
+                    })
+                    .ToList(),
             };
 
             _db.DiagnosisTemplates.Add(template);
@@ -130,6 +147,7 @@ namespace ClinicSaaS.API.Controllers
 
             var template = await _db.DiagnosisTemplates
                 .Include(t => t.Medications)
+                .Include(t => t.Tests)
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (template == null) return NotFound();
@@ -148,6 +166,18 @@ namespace ClinicSaaS.API.Controllers
                     DiagnosisTemplateId = template.Id,
                     DrugName = m.DrugName,
                     Instructions = m.Instructions,
+                    SortOrder = i,
+                })
+                .ToList();
+
+            _db.DiagnosisTests.RemoveRange(template.Tests);
+            template.Tests = dto.Tests
+                .Select((x, i) => new DiagnosisTest
+                {
+                    Id = Guid.NewGuid(),
+                    DiagnosisTemplateId = template.Id,
+                    TestName = x.TestName,
+                    Category = x.Category == "radiology" ? "radiology" : "lab",
                     SortOrder = i,
                 })
                 .ToList();

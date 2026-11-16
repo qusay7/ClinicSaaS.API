@@ -672,6 +672,45 @@ namespace ClinicSaaS.API.Migrations
                     b.ToTable("DiagnosisTemplates");
                 });
 
+            modelBuilder.Entity("ClinicSaaS.API.Data.DiagnosisTest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DiagnosisTemplateId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TestName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DiagnosisTemplateId");
+
+                    b.ToTable("DiagnosisTests");
+                });
+
             modelBuilder.Entity("ClinicSaaS.API.Data.Doctor", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2840,6 +2879,17 @@ namespace ClinicSaaS.API.Migrations
                     b.Navigation("Clinic");
                 });
 
+            modelBuilder.Entity("ClinicSaaS.API.Data.DiagnosisTest", b =>
+                {
+                    b.HasOne("ClinicSaaS.API.Data.DiagnosisTemplate", "DiagnosisTemplate")
+                        .WithMany("Tests")
+                        .HasForeignKey("DiagnosisTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DiagnosisTemplate");
+                });
+
             modelBuilder.Entity("ClinicSaaS.API.Data.Doctor", b =>
                 {
                     b.HasOne("ClinicSaaS.API.Data.Clinic", "Clinic")
@@ -3450,6 +3500,8 @@ namespace ClinicSaaS.API.Migrations
             modelBuilder.Entity("ClinicSaaS.API.Data.DiagnosisTemplate", b =>
                 {
                     b.Navigation("Medications");
+
+                    b.Navigation("Tests");
                 });
 
             modelBuilder.Entity("ClinicSaaS.API.Data.Doctor", b =>

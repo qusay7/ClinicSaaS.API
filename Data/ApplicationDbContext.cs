@@ -89,6 +89,7 @@ namespace ClinicSaaS.API.Data
         // ══ اقتراحات التشخيص/الأدوية (كل عيادة تبني قائمتها الخاصة) ══
         public DbSet<DiagnosisTemplate> DiagnosisTemplates { get; set; }
         public DbSet<DiagnosisMedication> DiagnosisMedications { get; set; }
+        public DbSet<DiagnosisTest> DiagnosisTests { get; set; }
 
         // ══ كتالوج الإجراءات + استخدامها الفعلي بالزيارات (موعد أو طوارئ) ══
         public DbSet<Procedure> Procedures { get; set; }
@@ -311,6 +312,10 @@ namespace ClinicSaaS.API.Data
             });
 
             // ✅ أدوية مقترحة لكل قالب تشخيص — تُحذف مع القالب (replace-all عند التعديل)
+            modelBuilder.Entity<DiagnosisTest>(e => {
+                e.HasOne(x => x.DiagnosisTemplate).WithMany(t => t.Tests).HasForeignKey(x => x.DiagnosisTemplateId).OnDelete(DeleteBehavior.Cascade);
+            });
+
             modelBuilder.Entity<DiagnosisMedication>(e => {
                 e.HasOne(x => x.DiagnosisTemplate).WithMany(t => t.Medications).HasForeignKey(x => x.DiagnosisTemplateId).OnDelete(DeleteBehavior.Cascade);
             });
@@ -1428,6 +1433,7 @@ namespace ClinicSaaS.API.Data
 
         public Clinic? Clinic { get; set; }
         public List<DiagnosisMedication> Medications { get; set; } = new();
+        public List<DiagnosisTest> Tests { get; set; } = new();
 
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
@@ -1440,6 +1446,22 @@ namespace ClinicSaaS.API.Data
         public Guid DiagnosisTemplateId { get; set; }
         public string DrugName { get; set; } = "";       // "Augmentin 625mg"
         public string? Instructions { get; set; }        // "كل 12 ساعة لمدة 7 أيام"
+        public int SortOrder { get; set; } = 0;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public DiagnosisTemplate? DiagnosisTemplate { get; set; }
+    }
+
+    // ✅ تحاليل/أشعة مقترحة لكل تشخيص جاهز — بنفس نمط DiagnosisMedication بالضبط
+    public class DiagnosisTest : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid DiagnosisTemplateId { get; set; }
+        public string TestName { get; set; } = "";       // "CBC" أو "أشعة صدر"
+        public string Category { get; set; } = "lab";     // "lab" | "radiology"
         public int SortOrder { get; set; } = 0;
         public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
