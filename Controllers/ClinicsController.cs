@@ -44,6 +44,24 @@ namespace ClinicSaaS.API.Controllers
             return Ok(result);
         }
 
+        // ✅ GET: api/clinics/letterhead — اسم/شعار/عنوان/هاتف العيادة بس، لأي
+        // مستخدم مسجّل بالعيادة (طبيب، استقبال...) عشان ترويسة فورمات الطباعة
+        // (الوصفة، التحاليل، الأشعة...) — بدون فتح GetById الكاملة (فيها بيانات
+        // حساسة: مفتاح الفوترة الإلكترونية، بيانات المالك...) لكل الأدوار
+        [HttpGet("letterhead")]
+        public async Task<ActionResult> GetLetterhead()
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var clinic = await _db.Clinics
+                .Where(c => c.Id == _clinicContext.ClinicId)
+                .Select(c => new { c.Name, c.Logo, c.Address, c.Phone })
+                .FirstOrDefaultAsync();
+
+            if (clinic == null) return NotFound();
+            return Ok(clinic);
+        }
+
         // GET: api/clinics/{id}
         [HttpGet("{id}")]
         [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
