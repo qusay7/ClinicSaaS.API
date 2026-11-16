@@ -253,6 +253,26 @@ namespace ClinicSaaS.API.Controllers
             }
         }
 
+        // GET: api/patients/next-number — الرقم المقترح تلقائياً لمريض جديد،
+        // يُعرض بنموذج الإضافة كقيمة افتراضية قابلة للتعديل قبل الحفظ الفعلي
+        [HttpGet("next-number")]
+        public async Task<ActionResult> GetNextNumber()
+        {
+            if (!_clinicContext.HasPermission("patients.create"))
+                return Forbid();
+
+            if (_clinicContext.ClinicId == null)
+                return Unauthorized("لا توجد عيادة مرتبطة بهذا المستخدم");
+
+            var nextNumber = await _db.Patients.AnyAsync(p => p.ClinicId == _clinicContext.ClinicId)
+                ? await _db.Patients
+                    .Where(p => p.ClinicId == _clinicContext.ClinicId)
+                    .MaxAsync(p => p.PatientNumber) + 1
+                : 1_000_000;
+
+            return Ok(new { nextNumber });
+        }
+
         // POST: api/patients
         // POST
         [HttpPost]
@@ -279,6 +299,52 @@ namespace ClinicSaaS.API.Controllers
                     p.ClinicId == _clinicContext.ClinicId && !p.IsDeleted && p.NationalId == model.NationalId);
                 if (nationalIdTaken)
                     return BadRequest("رقم الهوية الوطني مستخدم مسبقاً لمريض آخر بهذي العيادة");
+            }
+
+            // ✅ المستخدم يقدر يغيّر الرقم المقترح بنموذج الإضافة — نتحقق من
+            // عدم تكراره هون، ونستخدمه مباشرة بدل التوليد التلقائي لو أُرسل
+            if (model.PatientNumber.HasValue)
+            {
+                if (model.PatientNumber.Value <= 0)
+                    return BadRequest("رقم المريض يجب أن يكون رقماً صحيحاً أكبر من صفر");
+
+                var numberTaken = await _db.Patients.AnyAsync(p =>
+                    p.ClinicId == _clinicContext.ClinicId && !p.IsDeleted && p.PatientNumber == model.PatientNumber.Value);
+                if (numberTaken)
+                    return BadRequest($"رقم المريض #{model.PatientNumber.Value} مستخدم مسبقاً لمريض آخر بهذي العيادة");
+
+                var fixedPatient = new Patient
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    stopped = false,
+                    IsDeleted = false,
+                    ClinicId = _clinicContext.ClinicId.Value,
+                    PatientNumber = model.PatientNumber.Value,
+                    FullName = model.FullName,
+                    DateOfBirth = model.DateOfBirth,
+                    Phone = model.Phone,
+                    Phone2 = model.Phone2,
+                    Gender = model.Gender,
+                    NationalId = model.NationalId,
+                    Notes = model.Notes,
+                    Notes2 = model.Notes2,
+                    Notes3 = model.Notes3,
+                    BloodType = model.BloodType,
+                    Address = model.Address,
+                    Email = model.Email,
+                    EmergencyContact = model.EmergencyContact,
+                    EmergencyPhone = model.EmergencyPhone,
+                    Allergies = model.Allergies,
+                    ChronicDiseases = model.ChronicDiseases,
+                    Occupation = model.Occupation,
+                    MaritalStatus = model.MaritalStatus,
+                };
+
+                _db.Patients.Add(fixedPatient);
+                await _db.SaveChangesAsync();
+                await CheckPatientQuotaAlert(fixedPatient.ClinicId);
+                return CreatedAtAction(nameof(GetById), new { id = fixedPatient.Id }, ToResponse(fixedPatient));
             }
 
             const int maxRetries = 3;

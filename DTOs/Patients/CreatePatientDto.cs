@@ -1,10 +1,13 @@
 ﻿namespace ClinicSaaS.API.DTOs.Patients
 {
     // هذا الكلاس يحدد فقط الحقول التي يحق للمستخدم إرسالها عند إنشاء مريض
-    // لاحظ: لا يوجد Id, PatientNumber, isdeleted, CreatedAt
-    // لأن هذه الحقول يحددها النظام تلقائياً وليس المستخدم
+    // لاحظ: لا يوجد Id, isdeleted, CreatedAt — يحددها النظام تلقائياً دائماً.
+    // PatientNumber استثناء: مُقترَح تلقائياً لكن قابل للتعديل (انظر التعليق تحت)
     public class CreatePatientDto
     {
+        // ✅ اختياري — النموذج يعرض رقماً مقترحاً تلقائياً (GET next-number)
+        // قابل للتعديل من المستخدم قبل الحفظ؛ لو ما أُرسل، النظام يولّده تلقائياً
+        public int? PatientNumber { get; set; }
         public string FullName { get; set; } = default!;
         public DateTime? DateOfBirth { get; set; }
         public string? Phone { get; set; }
