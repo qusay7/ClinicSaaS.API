@@ -331,15 +331,100 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { message = "تم تحديث البيانات بنجاح" });
         }
 
+        // GET: api/users/{id}
+        [HttpGet("{id}")]
+        [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        [RequireActiveSubscription]
+        public async Task<ActionResult<UserResponseDto>> GetById(Guid id)
+        {
+            var user = await _db.Users.Include(u => u.Clinic).FirstOrDefaultAsync(u => u.Id == id);
+            if (user == null) return NotFound();
+
+            if (!_clinicContext.IsCompanyStaff && user.ClinicId != _clinicContext.ClinicId)
+                return Forbid();
+
+            return Ok(ToResponse(user));
+        }
+
+        // PUT: api/users/{id}
+        [HttpPut("{id}")]
+        [Authorize(Roles = "SuperAdmin,ClinicStaff,ClinicAdmin")]
+        [RequireActiveSubscription]
+        public async Task<ActionResult> Update(Guid id, [FromBody] UpdateUserDto dto)
+        {
+            var user = await _db.Users.FindAsync(id);
+            if (user == null) return NotFound();
+
+            if (!_clinicContext.IsCompanyStaff && user.ClinicId != _clinicContext.ClinicId)
+                return Forbid();
+
+            // ✅ ما حدا يقدر يحوّل مستخدم عادي لـ SuperAdmin أو يعدّل حساب SuperAdmin من هون
+            if (user.Role == "SuperAdmin" || dto.Role == "SuperAdmin")
+                return Forbid();
+
+            if (string.IsNullOrWhiteSpace(dto.FullName)) return BadRequest("Full name required");
+            if (string.IsNullOrWhiteSpace(dto.Role)) return BadRequest("Role required");
+
+            if (_clinicContext.Role == "ClinicAdmin")
+            {
+                var roleExists = await _db.Roles
+                    .AnyAsync(r => r.ClinicId == user.ClinicId && r.Name == dto.Role && r.IsActive);
+                if (!roleExists)
+                    return BadRequest("دور غير صحيح");
+            }
+            else if (_clinicContext.Role == "ClinicStaff")
+            {
+                if (dto.Role == "ClinicStaff") return Forbid();
+            }
+            else
+            {
+                var superAdminAllowedRoles = new[] { "ClinicAdmin", "ClinicStaff", "Doctor", "Receptionist" };
+                if (!superAdminAllowedRoles.Contains(dto.Role))
+                    return BadRequest("دور غير صحيح");
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.Username))
+            {
+                var username = dto.Username.Trim();
+                var usernameExists = await _db.Users.AnyAsync(u => u.Id != id && u.Username == username);
+                if (usernameExists) return BadRequest("اسم المستخدم مستخدم مسبقاً");
+
+                user.Username = username;
+                user.Email = $"{username}@CURA.COM";
+            }
+
+            var nameExists = await _db.Users.AnyAsync(u => u.Id != id && u.ClinicId == user.ClinicId && u.FullName == dto.FullName);
+            if (nameExists) return BadRequest("يوجد مستخدم بنفس الاسم مسبقاً");
+
+            if (!string.IsNullOrWhiteSpace(dto.Password))
+            {
+                if (dto.Password.Length < 6)
+                    return BadRequest("كلمة المرور يجب أن تكون 6 أحرف على الأقل");
+                user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            }
+
+            user.FullName = dto.FullName;
+            user.Role = dto.Role;
+            user.DepartmentId = dto.DepartmentId;
+
+            var role = await _db.Roles.FirstOrDefaultAsync(r => r.Name == dto.Role && r.ClinicId == user.ClinicId);
+            user.RoleId = role?.Id;
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = "تم تحديث المستخدم بنجاح" });
+        }
+
         private static UserResponseDto ToResponse(User u) => new UserResponseDto
         {
             Id = u.Id,
             FullName = u.FullName,
+            Username = u.Username,
             Email = u.Email,
             Role = u.Role,
             IsActive = u.IsActive,
             ClinicId = u.ClinicId,
             ClinicName = u.Clinic?.Name,
+            DepartmentId = u.DepartmentId,
             CreatedAt = u.CreatedAt
         };
     }
