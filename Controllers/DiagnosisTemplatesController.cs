@@ -192,43 +192,43 @@ namespace ClinicSaaS.API.Controllers
 
             template.Name = dto.Name;
 
-            // ✅ تعديل بالمكان (Clear + Add) بدل استبدال مرجع الـ collection كامل
-            // (RemoveRange ثم تعيين List جديد) — الاستبدال المباشر مرّة طيّح
-            // DbUpdateConcurrencyException (0 rows affected) على التحديث لأن
-            // EF's change-tracker fixup للعلاقة لما تستبدل المرجع نفسه بدل ما
-            // تعدّل العناصر، ممكن يضيع تتبّع حالة Delete على العناصر القديمة
-            template.Medications.Clear();
-            foreach (var m in dto.Medications.Select((m, i) => new DiagnosisMedication
+            // ✅ إضافة العناصر الجديدة عبر DbSet.AddRange مباشرة (مش عبر
+            // collection.Add على الـ navigation) — لما تضيف كيان جديد عبر
+            // navigation على parent متتبّع أصلاً، وEF Core يلاقي مفتاحه (Guid)
+            // محدَّد مسبقاً (مش قيمة افتراضية)، بيعتبره موجود أصلاً بقاعدة
+            // البيانات ويولّد له UPDATE بدل INSERT — فيطيح بـ
+            // DbUpdateConcurrencyException (0 rows affected) لأن هذا الـ Id
+            // الجديد غير موجود أصلاً. AddRange على الـ DbSet بالمقابل يحدّد
+            // الحالة Added بشكل صريح دايماً، بدون أي تخمين
+            _db.DiagnosisMedications.RemoveRange(template.Medications);
+            _db.DiagnosisMedications.AddRange(dto.Medications.Select((m, i) => new DiagnosisMedication
             {
                 Id = Guid.NewGuid(),
                 DiagnosisTemplateId = template.Id,
                 DrugName = m.DrugName,
                 Instructions = m.Instructions,
                 SortOrder = i,
-            }))
-                template.Medications.Add(m);
+            }));
 
-            template.Tests.Clear();
-            foreach (var x in dto.Tests.Select((x, i) => new DiagnosisTest
+            _db.DiagnosisTests.RemoveRange(template.Tests);
+            _db.DiagnosisTests.AddRange(dto.Tests.Select((x, i) => new DiagnosisTest
             {
                 Id = Guid.NewGuid(),
                 DiagnosisTemplateId = template.Id,
                 TestName = x.TestName,
                 Category = x.Category == "radiology" ? "radiology" : "lab",
                 SortOrder = i,
-            }))
-                template.Tests.Add(x);
+            }));
 
-            template.Procedures.Clear();
-            foreach (var p in dto.Procedures.Select((p, i) => new DiagnosisProcedure
+            _db.DiagnosisProcedures.RemoveRange(template.Procedures);
+            _db.DiagnosisProcedures.AddRange(dto.Procedures.Select((p, i) => new DiagnosisProcedure
             {
                 Id = Guid.NewGuid(),
                 DiagnosisTemplateId = template.Id,
                 ProcedureId = p.ProcedureId,
                 NeedsNursing = p.NeedsNursing,
                 SortOrder = i,
-            }))
-                template.Procedures.Add(p);
+            }));
 
             await _db.SaveChangesAsync();
 
