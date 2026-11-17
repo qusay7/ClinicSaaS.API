@@ -74,6 +74,28 @@ namespace ClinicSaaS.API.Controllers
             return Ok(results);
         }
 
+        // GET: api/diagnosistemplates/matchall?text=... — عكس اتجاه البحث: كل
+        // تشخيصات كتالوج العيادة اللي اسمها موجود كنص فرعي ضمن النص الكامل
+        // المكتوب بحقل التشخيص — يدعم كتابة أكثر من تشخيص بنفس الحقل (مثلاً
+        // "التهاب حلق وحرارة") وإظهار اقتراحات الطرفين معاً بدل واحد فقط
+        [HttpGet("matchall")]
+        public async Task<ActionResult> MatchAll([FromQuery] string text)
+        {
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+            if (string.IsNullOrWhiteSpace(text)) return Ok(new object[0]);
+
+            var names = await _db.DiagnosisTemplates
+                .Where(t => t.ClinicId == _clinicContext.ClinicId && t.IsActive)
+                .Select(t => new { t.Id, t.Name })
+                .ToListAsync();
+
+            var matches = names
+                .Where(n => !string.IsNullOrWhiteSpace(n.Name) && text.Contains(n.Name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return Ok(matches);
+        }
+
         // GET: api/diagnosistemplates/{id} — التفصيل الكامل مع الأدوية، عند اختيار اقتراح
         [HttpGet("{id}")]
         public async Task<ActionResult> GetById(Guid id)
