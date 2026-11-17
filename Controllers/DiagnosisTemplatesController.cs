@@ -34,6 +34,7 @@ namespace ClinicSaaS.API.Controllers
             var templates = await _db.DiagnosisTemplates
                 .Include(t => t.Medications)
                 .Include(t => t.Tests)
+                .Include(t => t.Procedures).ThenInclude(p => p.Procedure)
                 .Where(t => t.ClinicId == _clinicContext.ClinicId && t.IsActive)
                 .OrderBy(t => t.Name)
                 .Select(t => new
@@ -46,6 +47,9 @@ namespace ClinicSaaS.API.Controllers
                     tests = t.Tests
                         .OrderBy(x => x.SortOrder)
                         .Select(x => new { x.Id, x.TestName, x.Category }),
+                    procedures = t.Procedures
+                        .OrderBy(x => x.SortOrder)
+                        .Select(x => new { x.Id, x.ProcedureId, name = x.Procedure!.Name, nameEn = x.Procedure!.NameEn, defaultPrice = x.Procedure!.DefaultPrice, x.NeedsNursing }),
                 })
                 .ToListAsync();
 
@@ -79,6 +83,7 @@ namespace ClinicSaaS.API.Controllers
             var template = await _db.DiagnosisTemplates
                 .Include(t => t.Medications)
                 .Include(t => t.Tests)
+                .Include(t => t.Procedures).ThenInclude(p => p.Procedure)
                 .FirstOrDefaultAsync(t => t.Id == id && t.ClinicId == _clinicContext.ClinicId);
 
             if (template == null) return NotFound();
@@ -93,6 +98,9 @@ namespace ClinicSaaS.API.Controllers
                 tests = template.Tests
                     .OrderBy(x => x.SortOrder)
                     .Select(x => new { x.Id, x.TestName, x.Category }),
+                procedures = template.Procedures
+                    .OrderBy(x => x.SortOrder)
+                    .Select(x => new { x.Id, x.ProcedureId, name = x.Procedure!.Name, nameEn = x.Procedure!.NameEn, defaultPrice = x.Procedure!.DefaultPrice, x.NeedsNursing }),
             });
         }
 
@@ -105,6 +113,14 @@ namespace ClinicSaaS.API.Controllers
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return BadRequest(Msg(lang, "اسم التشخيص مطلوب", "Diagnosis name is required"));
+
+            var procedureIds = dto.Procedures.Select(p => p.ProcedureId).Distinct().ToList();
+            var validProcedureIds = await _db.Procedures
+                .Where(p => procedureIds.Contains(p.Id) && p.ClinicId == _clinicContext.ClinicId)
+                .Select(p => p.Id)
+                .ToListAsync();
+            if (validProcedureIds.Count != procedureIds.Count)
+                return BadRequest(Msg(lang, "أحد الإجراءات المختارة غير موجود", "One of the selected procedures was not found"));
 
             var template = new DiagnosisTemplate
             {
@@ -131,6 +147,15 @@ namespace ClinicSaaS.API.Controllers
                         SortOrder = i,
                     })
                     .ToList(),
+                Procedures = dto.Procedures
+                    .Select((p, i) => new DiagnosisProcedure
+                    {
+                        Id = Guid.NewGuid(),
+                        ProcedureId = p.ProcedureId,
+                        NeedsNursing = p.NeedsNursing,
+                        SortOrder = i,
+                    })
+                    .ToList(),
             };
 
             _db.DiagnosisTemplates.Add(template);
@@ -148,6 +173,7 @@ namespace ClinicSaaS.API.Controllers
             var template = await _db.DiagnosisTemplates
                 .Include(t => t.Medications)
                 .Include(t => t.Tests)
+                .Include(t => t.Procedures)
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (template == null) return NotFound();
@@ -155,6 +181,14 @@ namespace ClinicSaaS.API.Controllers
 
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return BadRequest(Msg(lang, "اسم التشخيص مطلوب", "Diagnosis name is required"));
+
+            var procedureIds = dto.Procedures.Select(p => p.ProcedureId).Distinct().ToList();
+            var validProcedureIds = await _db.Procedures
+                .Where(p => procedureIds.Contains(p.Id) && p.ClinicId == _clinicContext.ClinicId)
+                .Select(p => p.Id)
+                .ToListAsync();
+            if (validProcedureIds.Count != procedureIds.Count)
+                return BadRequest(Msg(lang, "أحد الإجراءات المختارة غير موجود", "One of the selected procedures was not found"));
 
             template.Name = dto.Name;
 
@@ -178,6 +212,18 @@ namespace ClinicSaaS.API.Controllers
                     DiagnosisTemplateId = template.Id,
                     TestName = x.TestName,
                     Category = x.Category == "radiology" ? "radiology" : "lab",
+                    SortOrder = i,
+                })
+                .ToList();
+
+            _db.DiagnosisProcedures.RemoveRange(template.Procedures);
+            template.Procedures = dto.Procedures
+                .Select((p, i) => new DiagnosisProcedure
+                {
+                    Id = Guid.NewGuid(),
+                    DiagnosisTemplateId = template.Id,
+                    ProcedureId = p.ProcedureId,
+                    NeedsNursing = p.NeedsNursing,
                     SortOrder = i,
                 })
                 .ToList();

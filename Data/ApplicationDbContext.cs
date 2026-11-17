@@ -90,6 +90,7 @@ namespace ClinicSaaS.API.Data
         public DbSet<DiagnosisTemplate> DiagnosisTemplates { get; set; }
         public DbSet<DiagnosisMedication> DiagnosisMedications { get; set; }
         public DbSet<DiagnosisTest> DiagnosisTests { get; set; }
+        public DbSet<DiagnosisProcedure> DiagnosisProcedures { get; set; }
 
         // ══ كتالوج الإجراءات + استخدامها الفعلي بالزيارات (موعد أو طوارئ) ══
         public DbSet<Procedure> Procedures { get; set; }
@@ -318,6 +319,11 @@ namespace ClinicSaaS.API.Data
 
             modelBuilder.Entity<DiagnosisMedication>(e => {
                 e.HasOne(x => x.DiagnosisTemplate).WithMany(t => t.Medications).HasForeignKey(x => x.DiagnosisTemplateId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<DiagnosisProcedure>(e => {
+                e.HasOne(x => x.DiagnosisTemplate).WithMany(t => t.Procedures).HasForeignKey(x => x.DiagnosisTemplateId).OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(x => x.Procedure).WithMany().HasForeignKey(x => x.ProcedureId).OnDelete(DeleteBehavior.Restrict);
             });
 
             // ✅ إجراء مرتبط بموعد أو حالة طوارئ (الاثنين Nullable) — Restrict لكل
@@ -1434,6 +1440,7 @@ namespace ClinicSaaS.API.Data
         public Clinic? Clinic { get; set; }
         public List<DiagnosisMedication> Medications { get; set; } = new();
         public List<DiagnosisTest> Tests { get; set; } = new();
+        public List<DiagnosisProcedure> Procedures { get; set; } = new();
 
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
@@ -1469,6 +1476,26 @@ namespace ClinicSaaS.API.Data
         public DateTime? UpdatedAt { get; set; }
 
         public DiagnosisTemplate? DiagnosisTemplate { get; set; }
+    }
+
+    // ✅ إجراءات مقترحة لكل تشخيص جاهز (إبرة/محلول وريدي/بخار...) — ترتبط
+    // بكتالوج الإجراءات الفعلي (Procedure) عشان الإدراج ينشئ VisitProcedureItem
+    // حقيقي بسعره الصحيح، مش نص. NeedsNursing اختياري مُعدّ مسبقاً من الطبيب
+    // وقت بناء القالب، بس يضل قابل للتغيير وقت الإدراج الفعلي بالزيارة
+    public class DiagnosisProcedure : IAuditable
+    {
+        public Guid Id { get; set; }
+        public Guid DiagnosisTemplateId { get; set; }
+        public Guid ProcedureId { get; set; }
+        public bool NeedsNursing { get; set; } = false;
+        public int SortOrder { get; set; } = 0;
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+        public Guid? CreatedBy { get; set; }
+        public Guid? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public DiagnosisTemplate? DiagnosisTemplate { get; set; }
+        public Procedure? Procedure { get; set; }
     }
 
     // ══════════════════════════════════════

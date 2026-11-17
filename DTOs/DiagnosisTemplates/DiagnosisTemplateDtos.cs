@@ -12,10 +12,17 @@ namespace ClinicSaaS.API.DTOs.DiagnosisTemplates
         public string Category { get; set; } = "lab"; // "lab" | "radiology"
     }
 
+    public class DiagnosisProcedureDto
+    {
+        public Guid ProcedureId { get; set; }
+        public bool NeedsNursing { get; set; } = false;
+    }
+
     public class CreateDiagnosisTemplateDto
     {
         public string Name { get; set; } = "";
         public List<DiagnosisMedicationDto> Medications { get; set; } = new();
         public List<DiagnosisTestDto> Tests { get; set; } = new();
+        public List<DiagnosisProcedureDto> Procedures { get; set; } = new();
     }
 }
