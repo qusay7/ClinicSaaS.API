@@ -192,41 +192,43 @@ namespace ClinicSaaS.API.Controllers
 
             template.Name = dto.Name;
 
-            _db.DiagnosisMedications.RemoveRange(template.Medications);
-            template.Medications = dto.Medications
-                .Select((m, i) => new DiagnosisMedication
-                {
-                    Id = Guid.NewGuid(),
-                    DiagnosisTemplateId = template.Id,
-                    DrugName = m.DrugName,
-                    Instructions = m.Instructions,
-                    SortOrder = i,
-                })
-                .ToList();
+            // ✅ تعديل بالمكان (Clear + Add) بدل استبدال مرجع الـ collection كامل
+            // (RemoveRange ثم تعيين List جديد) — الاستبدال المباشر مرّة طيّح
+            // DbUpdateConcurrencyException (0 rows affected) على التحديث لأن
+            // EF's change-tracker fixup للعلاقة لما تستبدل المرجع نفسه بدل ما
+            // تعدّل العناصر، ممكن يضيع تتبّع حالة Delete على العناصر القديمة
+            template.Medications.Clear();
+            foreach (var m in dto.Medications.Select((m, i) => new DiagnosisMedication
+            {
+                Id = Guid.NewGuid(),
+                DiagnosisTemplateId = template.Id,
+                DrugName = m.DrugName,
+                Instructions = m.Instructions,
+                SortOrder = i,
+            }))
+                template.Medications.Add(m);
 
-            _db.DiagnosisTests.RemoveRange(template.Tests);
-            template.Tests = dto.Tests
-                .Select((x, i) => new DiagnosisTest
-                {
-                    Id = Guid.NewGuid(),
-                    DiagnosisTemplateId = template.Id,
-                    TestName = x.TestName,
-                    Category = x.Category == "radiology" ? "radiology" : "lab",
-                    SortOrder = i,
-                })
-                .ToList();
+            template.Tests.Clear();
+            foreach (var x in dto.Tests.Select((x, i) => new DiagnosisTest
+            {
+                Id = Guid.NewGuid(),
+                DiagnosisTemplateId = template.Id,
+                TestName = x.TestName,
+                Category = x.Category == "radiology" ? "radiology" : "lab",
+                SortOrder = i,
+            }))
+                template.Tests.Add(x);
 
-            _db.DiagnosisProcedures.RemoveRange(template.Procedures);
-            template.Procedures = dto.Procedures
-                .Select((p, i) => new DiagnosisProcedure
-                {
-                    Id = Guid.NewGuid(),
-                    DiagnosisTemplateId = template.Id,
-                    ProcedureId = p.ProcedureId,
-                    NeedsNursing = p.NeedsNursing,
-                    SortOrder = i,
-                })
-                .ToList();
+            template.Procedures.Clear();
+            foreach (var p in dto.Procedures.Select((p, i) => new DiagnosisProcedure
+            {
+                Id = Guid.NewGuid(),
+                DiagnosisTemplateId = template.Id,
+                ProcedureId = p.ProcedureId,
+                NeedsNursing = p.NeedsNursing,
+                SortOrder = i,
+            }))
+                template.Procedures.Add(p);
 
             await _db.SaveChangesAsync();
 
