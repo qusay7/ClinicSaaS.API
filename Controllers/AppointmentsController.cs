@@ -1131,7 +1131,7 @@ namespace ClinicSaaS.API.Controllers
             var items = await _db.VisitProcedureItems
                 .Where(p => p.AppointmentId == id)
                 .OrderBy(p => p.CreatedAt)
-                .Select(p => new { p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt })
+                .Select(p => new { p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt, p.NeedsNursing, p.NursingDone })
                 .ToListAsync();
 
             return Ok(items);
@@ -1166,6 +1166,7 @@ namespace ClinicSaaS.API.Controllers
                 Name = name,
                 Price = dto.Price,
                 DoctorId = appointment.DoctorId,
+                NeedsNursing = dto.NeedsNursing,
                 CreatedAt = DateTime.UtcNow,
             };
             _db.VisitProcedureItems.Add(item);
@@ -1338,5 +1339,6 @@ namespace ClinicSaaS.API.Controllers
         public Guid? ProcedureId { get; set; }
         public string? Name { get; set; }
         public decimal? Price { get; set; }
+        public bool NeedsNursing { get; set; } = false;
     }
 }

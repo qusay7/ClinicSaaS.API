@@ -2671,6 +2671,18 @@ namespace ClinicSaaS.API.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("NeedsNursing")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("NursingDone")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("NursingDoneAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("NursingDoneBy")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal?>("Price")
                         .HasPrecision(10, 3)
                         .HasColumnType("decimal(10,3)");

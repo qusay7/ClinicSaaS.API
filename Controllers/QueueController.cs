@@ -352,6 +352,7 @@ namespace ClinicSaaS.API.Controllers
 				.Select(p => new {
 					p.Id, p.ProcedureId, p.Name, p.Price, p.CreatedAt, p.DoctorId,
 					doctorName = p.Doctor == null ? null : p.Doctor.FullName,
+					p.NeedsNursing, p.NursingDone,
 				})
 				.ToListAsync();
 
@@ -406,6 +407,7 @@ namespace ClinicSaaS.API.Controllers
 				Name = name,
 				Price = dto.Price,
 				DoctorId = doctorId,
+				NeedsNursing = dto.NeedsNursing,
 				CreatedAt = DateTime.UtcNow,
 			};
 			_db.VisitProcedureItems.Add(item);

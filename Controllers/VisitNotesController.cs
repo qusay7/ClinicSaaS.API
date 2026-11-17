@@ -370,7 +370,22 @@ namespace ClinicSaaS.API.Controllers
             var queueVitals = relatedNotes.Where(v => v.QueueEntryId != null)
                 .GroupBy(v => v.QueueEntryId!.Value).ToDictionary(g => g.Key, g => g.First());
 
-            object ToItem(string type, Guid id, Guid patientId, string patientName, string? doctorName, DateTime time, VisitNote? note) => new
+            // ✅ إجراءات علّمها الطبيب "تحتاج تنفيذ تمريض" ولسا ما اتعملت — تظهر
+            // هون بنفس طابور التمريض الموجود أصلاً، بدل صفحة منفصلة
+            var pendingProcedures = await _db.VisitProcedureItems
+                .Where(p => p.ClinicId == _clinicContext.ClinicId && p.NeedsNursing && !p.NursingDone
+                    && ((p.AppointmentId != null && apptIds.Contains(p.AppointmentId.Value))
+                        || (p.QueueEntryId != null && queueIds.Contains(p.QueueEntryId.Value))))
+                .OrderBy(p => p.CreatedAt)
+                .Select(p => new { p.Id, p.Name, p.AppointmentId, p.QueueEntryId })
+                .ToListAsync();
+
+            var apptProcedures = pendingProcedures.Where(p => p.AppointmentId != null)
+                .GroupBy(p => p.AppointmentId!.Value).ToDictionary(g => g.Key, g => g.Select(p => new { p.Id, p.Name }).ToList());
+            var queueProcedures = pendingProcedures.Where(p => p.QueueEntryId != null)
+                .GroupBy(p => p.QueueEntryId!.Value).ToDictionary(g => g.Key, g => g.Select(p => new { p.Id, p.Name }).ToList());
+
+            object ToItem(string type, Guid id, Guid patientId, string patientName, string? doctorName, DateTime time, VisitNote? note, List<object>? pending) => new
             {
                 type,
                 id,
@@ -383,12 +398,36 @@ namespace ClinicSaaS.API.Controllers
                 bloodSugar = note?.BloodSugar,
                 heartRate = note?.HeartRate,
                 respiratoryRate = note?.RespiratoryRate,
+                pendingProcedures = pending ?? new List<object>(),
             };
 
-            var items = appts.Select(a => ToItem("appointment", a.Id, a.PatientId, a.Patient?.FullName ?? "—", a.Doctor?.FullName, a.AppointmentDate, apptVitals.GetValueOrDefault(a.Id)))
-                .Concat(queueEntries.Select(q => ToItem("emergency", q.Id, q.PatientId, q.Patient?.FullName ?? "—", q.Doctor?.FullName, q.CreatedAt, queueVitals.GetValueOrDefault(q.Id))));
+            var items = appts.Select(a => ToItem("appointment", a.Id, a.PatientId, a.Patient?.FullName ?? "—", a.Doctor?.FullName, a.AppointmentDate, apptVitals.GetValueOrDefault(a.Id), apptProcedures.GetValueOrDefault(a.Id)?.Cast<object>().ToList()))
+                .Concat(queueEntries.Select(q => ToItem("emergency", q.Id, q.PatientId, q.Patient?.FullName ?? "—", q.Doctor?.FullName, q.CreatedAt, queueVitals.GetValueOrDefault(q.Id), queueProcedures.GetValueOrDefault(q.Id)?.Cast<object>().ToList())));
 
             return Ok(items);
+        }
+
+        // ✅ PUT: api/visitnotes/procedures/{id}/nursing-done — تعلّم إجراء
+        // (إبرة/محلول وريدي...) أنه اتنفّذ من التمريض. بمعزل عن appointment/queue
+        // المالك للإجراء عشان طابور التمريض الموحّد يقدر يستخدمها لأي نوع زيارة
+        [HttpPut("procedures/{id}/nursing-done")]
+        public async Task<ActionResult> MarkProcedureNursingDone(Guid id)
+        {
+            if (!_clinicContext.HasPermission("nursing.manage")) return Forbid();
+            if (_clinicContext.ClinicId == null) return Unauthorized();
+
+            var item = await _db.VisitProcedureItems.FirstOrDefaultAsync(p => p.Id == id);
+            if (item == null) return NotFound();
+            if (item.ClinicId != _clinicContext.ClinicId) return Forbid();
+            if (!item.NeedsNursing) return BadRequest("هذا الإجراء ما كان معلّم كمحتاج تنفيذ تمريض");
+            if (item.NursingDone) return BadRequest("تم تنفيذ هذا الإجراء بالفعل");
+
+            item.NursingDone = true;
+            item.NursingDoneAt = DateTime.UtcNow;
+            item.NursingDoneBy = _clinicContext.UserId;
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "تم تسجيل تنفيذ الإجراء" });
         }
 
         // ✅ PUT: api/visitnotes/vitals — تسجيل/تحديث العلامات الحيوية فقط، قبل

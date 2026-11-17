@@ -1632,6 +1632,12 @@ namespace ClinicSaaS.API.Data
         public string Name { get; set; } = "";   // نسخة من الاسم وقت الإضافة
         public decimal? Price { get; set; }
         public Guid? DoctorId { get; set; }
+        // ✅ يحدّدها الطبيب وقت الإضافة — مش كل إجراء محتاج تنفيذ تمريض (أحياناً
+        // الطبيب نفسه بينفّذه، أو الممرضة أصلاً موجودة معه بالكشف)
+        public bool NeedsNursing { get; set; } = false;
+        public bool NursingDone { get; set; } = false;
+        public DateTime? NursingDoneAt { get; set; }
+        public Guid? NursingDoneBy { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
