@@ -247,6 +247,16 @@ app.UseRouting();
 // ✅ ترتيب الـ Middleware مهم جداً!
 app.UseCors("AllowReact");
 app.UseStaticFiles();
+// ✅ الفرونت اند والباك اند عندهم دومين/منفذ منفصل بالإنتاج، وريفيرس بروكسي
+// السيرفر بيمرّر بس /api للباك اند — شعارات العيادة مخزّنة كـ /logos/xxx.png
+// (جذر الباك اند نفسه) فما توصل أبداً من دومين الفرونت اند. نعرض نفس مجلد
+// wwwroot/logos إضافياً تحت /api/logos عشان تنعبر من نفس مسار البروكسي الشغّال أصلاً
+app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(builder.Environment.WebRootPath ?? Path.Combine(builder.Environment.ContentRootPath, "wwwroot"), "logos")),
+    RequestPath = "/api/logos",
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
