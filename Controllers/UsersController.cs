@@ -92,7 +92,11 @@ namespace ClinicSaaS.API.Controllers
 
             if (_clinicContext.Role == "SuperAdmin")
             {
-                var superAdminAllowedRoles = new[] { "ClinicAdmin", "ClinicStaff", "Doctor", "Receptionist" };
+                // ✅ أضفنا Nurse وAdministration employee — كانا موجودين أصلاً كأدوار
+                // افتراضية (RoleSeedingService.ClinicRoles) لكن SuperAdmin ما كان
+                // يقدر ينشئ مستخدم بهذا الدور مباشرة (ضروري لإنشاء حسابات تلقائية
+                // عند إضافة عيادة جديدة بخطة فيها أكثر من مستخدم)
+                var superAdminAllowedRoles = new[] { "ClinicAdmin", "ClinicStaff", "Doctor", "Receptionist", "Nurse", "Administration employee" };
                 if (!superAdminAllowedRoles.Contains(dto.Role))
                     return BadRequest("دور غير صحيح");
 
