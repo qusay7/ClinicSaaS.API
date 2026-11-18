@@ -345,6 +345,87 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { clinic.IsActive });
         }
 
+        // DELETE: api/clinics/{id}
+        // ✅ SuperAdmin فقط — حذف نهائي للعيادة وكل بياناتها من كل الجداول المرتبطة
+        // (مرضى، مواعيد، فواتير، مستخدمون، أدوار...) — لا يوجد تراجع، ولا نسخة احتياطية
+        // تلقائية. نحمّل كل الكيانات المرتبطة كـ tracked ونعلّمها للحذف، ثم SaveChangesAsync
+        // واحدة بالنهاية — EF يرتّب جمل DELETE تلقائياً حسب شجرة علاقات FK بالموديل، بدون
+        // حاجة لتحديد الترتيب يدوياً (لا يوجد ON DELETE CASCADE معرّف بقاعدة البيانات نفسها)
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult> Delete(Guid id)
+        {
+            var clinic = await _db.Clinics.FindAsync(id);
+            if (clinic == null) return NotFound();
+
+            using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                var doctorIds = await _db.Doctors.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+                var userIds = await _db.Users.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+                var departmentIds = await _db.Departments.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+                var roleIds = await _db.Roles.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+                var diagnosisTemplateIds = await _db.DiagnosisTemplates.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+                var treatmentPlanIds = await _db.TreatmentPlans.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+                var invoiceIds = await _db.Invoices.Where(x => x.ClinicId == id).Select(x => x.Id).ToListAsync();
+
+                // ✅ جداول بدون ClinicId مباشر — نوصلها عبر IDs العيادة أعلاه
+                _db.DiagnosisMedications.RemoveRange(await _db.DiagnosisMedications.Where(x => diagnosisTemplateIds.Contains(x.DiagnosisTemplateId)).ToListAsync());
+                _db.DiagnosisTests.RemoveRange(await _db.DiagnosisTests.Where(x => diagnosisTemplateIds.Contains(x.DiagnosisTemplateId)).ToListAsync());
+                _db.DiagnosisProcedures.RemoveRange(await _db.DiagnosisProcedures.Where(x => diagnosisTemplateIds.Contains(x.DiagnosisTemplateId)).ToListAsync());
+                _db.TreatmentSessions.RemoveRange(await _db.TreatmentSessions.Where(x => treatmentPlanIds.Contains(x.TreatmentPlanId)).ToListAsync());
+                _db.InvoiceItems.RemoveRange(await _db.InvoiceItems.Where(x => invoiceIds.Contains(x.InvoiceId)).ToListAsync());
+                _db.DoctorSchedules.RemoveRange(await _db.DoctorSchedules.Where(x => doctorIds.Contains(x.DoctorId)).ToListAsync());
+                _db.RefreshTokens.RemoveRange(await _db.RefreshTokens.Where(x => x.UserId != null && userIds.Contains(x.UserId.Value)).ToListAsync());
+                _db.DepartmentRoles.RemoveRange(await _db.DepartmentRoles.Where(x => departmentIds.Contains(x.DepartmentId) || roleIds.Contains(x.RoleId)).ToListAsync());
+                _db.RolePermissions.RemoveRange(await _db.RolePermissions.Where(x => x.ClinicId == id || roleIds.Contains(x.RoleId)).ToListAsync());
+
+                // ✅ جداول فيها ClinicId مباشر
+                _db.VisitProcedureItems.RemoveRange(await _db.VisitProcedureItems.Where(x => x.ClinicId == id).ToListAsync());
+                _db.LabOrders.RemoveRange(await _db.LabOrders.Where(x => x.ClinicId == id).ToListAsync());
+                _db.AppointmentVisitTypes.RemoveRange(await _db.AppointmentVisitTypes.Where(x => x.ClinicId == id).ToListAsync());
+                _db.DoctorTemplateSettings.RemoveRange(await _db.DoctorTemplateSettings.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Attachments.RemoveRange(await _db.Attachments.Where(x => x.ClinicId == id).ToListAsync());
+                _db.VisitNotes.RemoveRange(await _db.VisitNotes.Where(x => x.ClinicId == id).ToListAsync());
+                _db.PaymentDetails.RemoveRange(await _db.PaymentDetails.Where(x => x.ClinicId == id).ToListAsync());
+                _db.InsuranceClaims.RemoveRange(await _db.InsuranceClaims.Where(x => x.ClinicId == id).ToListAsync());
+                _db.PatientInsurances.RemoveRange(await _db.PatientInsurances.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Settlements.RemoveRange(await _db.Settlements.Where(x => x.ClinicId == id).ToListAsync());
+                _db.InsuranceCompanies.RemoveRange(await _db.InsuranceCompanies.Where(x => x.ClinicId == id).ToListAsync());
+                _db.QueueEntries.RemoveRange(await _db.QueueEntries.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Invoices.RemoveRange(await _db.Invoices.Where(x => x.ClinicId == id).ToListAsync());
+                _db.TreatmentPlans.RemoveRange(await _db.TreatmentPlans.Where(x => x.ClinicId == id).ToListAsync());
+                _db.TreatmentPlanTemplates.RemoveRange(await _db.TreatmentPlanTemplates.Where(x => x.ClinicId == id).ToListAsync());
+                _db.DiagnosisTemplates.RemoveRange(await _db.DiagnosisTemplates.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Procedures.RemoveRange(await _db.Procedures.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Staff.RemoveRange(await _db.Staff.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Absences.RemoveRange(await _db.Absences.Where(x => x.ClinicId == id).ToListAsync());
+                _db.NotificationLogs.RemoveRange(await _db.NotificationLogs.Where(x => x.ClinicId == id).ToListAsync());
+                _db.AppNotifications.RemoveRange(await _db.AppNotifications.Where(x => x.ClinicId == id).ToListAsync());
+                _db.ClinicSchedules.RemoveRange(await _db.ClinicSchedules.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Appointments.RemoveRange(await _db.Appointments.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Patients.RemoveRange(await _db.Patients.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Subscriptions.RemoveRange(await _db.Subscriptions.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Doctors.RemoveRange(await _db.Doctors.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Roles.RemoveRange(await _db.Roles.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Departments.RemoveRange(await _db.Departments.Where(x => x.ClinicId == id).ToListAsync());
+                _db.Users.RemoveRange(await _db.Users.Where(x => x.ClinicId == id).ToListAsync());
+                _db.ErrorLogs.RemoveRange(await _db.ErrorLogs.Where(x => x.ClinicId == id).ToListAsync());
+
+                _db.Clinics.Remove(clinic);
+
+                await _db.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return Ok(new { message = "تم حذف العيادة وكل بياناتها نهائياً" });
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
         // ═══════════════════════════════════════
         // GET: api/clinics/workload-report
         // تقرير حجم عمل كل عيادة للأدمن — عدد مرات تجديد الاشتراك ونوعه الحالي،
