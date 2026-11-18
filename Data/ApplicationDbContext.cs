@@ -802,6 +802,11 @@ namespace ClinicSaaS.API.Data
         public bool HasElectronicInvoicing { get; set; }
         public bool HasMultipleDepartments { get; set; }
 
+        // ✅ جديد — مستقل عن IsActive: IsActive يتحكم بإمكانية بيع/تجديد الخطة
+        // (SuperAdmin ممكن يربط عيادة بخطة غير معروضة للعامة، مثل خطة مخصّصة
+        // بالتفاوض)، بينما هذا الحقل يتحكم فقط بظهورها بصفحة الأسعار العامة
+        public bool ShowOnPricingPage { get; set; } = true;
+
     }
 
     // جدول الاشتراكات (Subscriptions)

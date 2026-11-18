@@ -21,5 +21,6 @@
         public int MaxDailyMessages { get; set; }
         public bool HasElectronicInvoicing { get; set; }
         public bool HasMultipleDepartments { get; set; }
+        public bool ShowOnPricingPage { get; set; } // ✅ جديد
     }
 }

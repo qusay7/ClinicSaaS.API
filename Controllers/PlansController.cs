@@ -25,14 +25,33 @@ namespace ClinicSaaS.API.Controllers
 
         // ═══════════════════════════════════════
         // GET: api/plans
-        // ✅ عام بالكامل — صفحة الهبوط تحتاجها قبل تسجيل الدخول
+        // ✅ عام بالكامل — صفحة الأسعار العامة تحتاجها قبل تسجيل الدخول. تُرجع
+        // فقط الخطط النشطة والمُعلَّمة "عرض بصفحة الأسعار" — خطة نشطة ممكن تبقى
+        // قابلة لربطها بعيادة (مثلاً خطة مخصّصة بالتفاوض) بدون ظهورها هون
         // ═══════════════════════════════════════
         [HttpGet]
         [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<PlanResponseDto>>> GetAll()
         {
             var plans = await _db.Plans
-                .Where(p => p.IsActive)
+                .Where(p => p.IsActive && p.ShowOnPricingPage)
+                .OrderBy(p => p.MonthlyPrice)
+                .ToListAsync();
+
+            return Ok(plans.Select(ToResponse).ToList());
+        }
+
+        // ═══════════════════════════════════════
+        // GET: api/plans/admin
+        // ✅ كل الخطط بدون أي فلترة — لواجهات الإدارة فقط (SuperAdmin → Plans،
+        // لوحة التحكم، وربط خطة بعيادة) اللي تحتاج ترى/تدير حتى الخطط
+        // الموقوفة أو غير المعروضة بصفحة الأسعار العامة
+        // ═══════════════════════════════════════
+        [HttpGet("admin")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult<IEnumerable<PlanResponseDto>>> GetAllForAdmin()
+        {
+            var plans = await _db.Plans
                 .OrderBy(p => p.MonthlyPrice)
                 .ToListAsync();
 
@@ -84,6 +103,7 @@ namespace ClinicSaaS.API.Controllers
                 IsFeatured = dto.IsFeatured,
                 HasElectronicInvoicing = dto.HasElectronicInvoicing,
                 HasMultipleDepartments = dto.HasMultipleDepartments,
+                ShowOnPricingPage = dto.ShowOnPricingPage,
 
             };
 
@@ -130,6 +150,7 @@ namespace ClinicSaaS.API.Controllers
             plan.IsFeatured = dto.IsFeatured;
             plan.HasElectronicInvoicing = dto.HasElectronicInvoicing;
             plan.HasMultipleDepartments = dto.HasMultipleDepartments;
+            plan.ShowOnPricingPage = dto.ShowOnPricingPage;
 
             if (plan.IsFeatured)
                 await UnfeatureAllOtherPlans(exceptId: plan.Id);
@@ -247,6 +268,7 @@ namespace ClinicSaaS.API.Controllers
             IsFeatured = p.IsFeatured,
             HasElectronicInvoicing = p.HasElectronicInvoicing,
             HasMultipleDepartments = p.HasMultipleDepartments,
+            ShowOnPricingPage = p.ShowOnPricingPage,
         };
     }
 }

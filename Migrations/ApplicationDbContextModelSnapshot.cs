@@ -1791,6 +1791,9 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<string>("NameEn")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("ShowOnPricingPage")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
