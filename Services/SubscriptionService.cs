@@ -41,8 +41,11 @@ namespace ClinicSaaS.API.Services
             var currentUsers = await _db.Users
                 .CountAsync(u => u.ClinicId == clinicId && !u.IsDeleted && u.IsActive);
 
-            if (currentUsers >= subscription.Plan.MaxUsers)
-                return (false, $"وصلت للحد الأقصى ({subscription.Plan.MaxUsers} مستخدمين) في خطتك");
+            // ✅ ExtraUserAllowance: استثناء متعمّد يحدده SuperAdmin فقط لهذي
+            // العيادة بالذات (0 افتراضياً = بدون استثناء، يبقى الفحص بحد الخطة)
+            var effectiveLimit = subscription.Plan.MaxUsers + subscription.ExtraUserAllowance;
+            if (currentUsers >= effectiveLimit)
+                return (false, $"وصلت للحد الأقصى ({effectiveLimit} مستخدمين) في خطتك");
 
             return (true, null);
         }

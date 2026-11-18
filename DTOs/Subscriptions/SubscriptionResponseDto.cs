@@ -28,5 +28,9 @@
         // ✅ بوابات ميزات فعلية — الفرونت اند يخفي/يعطّل البانلات المقابلة لو false
         public bool HasElectronicInvoicing { get; set; }
         public bool HasMultipleDepartments { get; set; }
+
+        // ✅ استثناء مقاعد مستخدمين إضافية حدّده SuperAdmin لهذي العيادة بالذات،
+        // فوق حد MaxUsers بالخطة (0 = بدون استثناء)
+        public int ExtraUserAllowance { get; set; }
     }
 }

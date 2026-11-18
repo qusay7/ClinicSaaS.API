@@ -828,6 +828,11 @@ namespace ClinicSaaS.API.Data
         public Guid? CreatedBy { get; set; }
         public Guid? UpdatedBy { get; set; }
         public DateTime? UpdatedAt { get; set; }
+
+        // ✅ استثناء متعمّد يحدده SuperAdmin فقط — مقاعد مستخدمين إضافية فوق حد
+        // الخطة (Plan.MaxUsers) لهذي العيادة بالذات، بدل تعديل حد الخطة نفسها
+        // أو تعطيل الفحص بالكامل. صفر = لا استثناء، يبقى الفحص بحد الخطة فقط
+        public int ExtraUserAllowance { get; set; } = 0;
     }
 
     // جدول Refresh Tokens

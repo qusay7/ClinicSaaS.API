@@ -114,7 +114,10 @@ namespace ClinicSaaS.API.Controllers
                     BillingCycle = dto.BillingCycle,
                     StartDate = dto.StartDate,
                     EndDate = endDate,
-                    PricePaid = pricePaid
+                    PricePaid = pricePaid,
+                    // ✅ استثناء المقاعد الإضافية — SuperAdmin فقط، يتجاهل أي قيمة
+                    // يرسلها ClinicStaff حفاظاً على كونه استثناء مقصود ومُتحكَّم به
+                    ExtraUserAllowance = _clinicContext.IsSuperAdmin ? dto.ExtraUserAllowance : 0,
                 };
 
                 _db.Subscriptions.Add(subscription);
@@ -207,6 +210,8 @@ namespace ClinicSaaS.API.Controllers
                     StartDate = startDate,
                     EndDate = endDate,
                     PricePaid = pricePaid,
+                    // ✅ نفس قاعدة Create — SuperAdmin فقط، وإلا الاستثناء يُلغى بالتجديد
+                    ExtraUserAllowance = _clinicContext.IsSuperAdmin ? dto.ExtraUserAllowance : 0,
                 };
 
                 _db.Subscriptions.Add(subscription);
@@ -223,6 +228,28 @@ namespace ClinicSaaS.API.Controllers
                 await transaction.RollbackAsync();
                 throw;
             }
+        }
+
+        // PATCH: api/subscriptions/{id}/extra-users
+        // ✅ SuperAdmin فقط — يضبط استثناء المقاعد الإضافية على اشتراك موجود
+        // بدون الحاجة لتجديد كامل (تاريخ/سعر جديدين)
+        [HttpPatch("{id}/extra-users")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult<SubscriptionResponseDto>> SetExtraUserAllowance(Guid id, [FromBody] SetExtraUserAllowanceDto dto)
+        {
+            if (dto.ExtraUserAllowance < 0)
+                return BadRequest("لا يمكن أن يكون العدد سالباً");
+
+            var subscription = await _db.Subscriptions
+                .Include(s => s.Clinic)
+                .Include(s => s.Plan)
+                .FirstOrDefaultAsync(s => s.Id == id);
+            if (subscription == null) return NotFound();
+
+            subscription.ExtraUserAllowance = dto.ExtraUserAllowance;
+            await _db.SaveChangesAsync();
+
+            return Ok(await ToResponse(subscription));
         }
 
         // دالة مساعدة — تجلب إحصائيات الاستخدام الحالي
@@ -262,7 +289,8 @@ namespace ClinicSaaS.API.Controllers
                 CurrentDoctors = currentDoctors,
                 CurrentPatients = currentPatients,
                 HasElectronicInvoicing = s.Plan.HasElectronicInvoicing,
-                HasMultipleDepartments = s.Plan.HasMultipleDepartments
+                HasMultipleDepartments = s.Plan.HasMultipleDepartments,
+                ExtraUserAllowance = s.ExtraUserAllowance,
             };
         }
     }
@@ -271,5 +299,11 @@ namespace ClinicSaaS.API.Controllers
     {
         public Guid PlanId { get; set; }
         public string BillingCycle { get; set; } = "monthly";
+        public int ExtraUserAllowance { get; set; } = 0;
+    }
+
+    public class SetExtraUserAllowanceDto
+    {
+        public int ExtraUserAllowance { get; set; }
     }
 }
