@@ -294,6 +294,15 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.IsCompanyStaff && user.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
+            // ✅ كانت تسمح بتجاوز حد المستخدمين بالخطة بالتعطيل والتفعيل بالتكرار
+            // (عطّل مستخدم، أضف غيره، رجّع فعّل الأول) — الفحص هون بس عند إعادة
+            // التفعيل (false → true)، مش عند التعطيل نفسه
+            if (!user.IsActive && user.ClinicId.HasValue)
+            {
+                var (canAdd, error) = await _subscriptionService.CanAddUser(user.ClinicId.Value);
+                if (!canAdd) return BadRequest(error);
+            }
+
             user.IsActive = !user.IsActive;
             await _db.SaveChangesAsync();
 

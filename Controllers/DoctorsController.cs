@@ -335,6 +335,14 @@ namespace ClinicSaaS.API.Controllers
             if (!_clinicContext.IsSuperAdmin && doctor.ClinicId != _clinicContext.ClinicId)
                 return Forbid();
 
+            // ✅ نفس ثغرة المستخدمين — بدون هذا الفحص يمكن تجاوز حد الأطباء بالخطة
+            // بتعطيل طبيب وإضافة غيره ثم إعادة تفعيل الأول
+            if (!doctor.IsActive)
+            {
+                var (canAdd, error) = await _subscriptionService.CanAddDoctor(doctor.ClinicId);
+                if (!canAdd) return BadRequest(error);
+            }
+
             doctor.IsActive = !doctor.IsActive;
             await _db.SaveChangesAsync();
 
