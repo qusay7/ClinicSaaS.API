@@ -1106,18 +1106,38 @@ namespace ClinicSaaS.API.Controllers
 
         // ✅ إجراءات الزيارة (حقنة/بنج/دواء...) — تُضاف واحداً واحداً (مش replace-all
         // زي أنواع الزيارة)، وسعر الموعد الكلي = بنود الزيارة + الإجراءات مجتمعة
+        // ✅ Appointment له RowVersion (optimistic concurrency) — لو طلبين
+        // بالتوازي أضافوا إجراء/تحليل لنفس الموعد (مثلاً "إدراج الكل" من
+        // اقتراحات التشخيص)، كل واحد منهم يعيد حساب ويحفظ السعر، وأي واحد
+        // يحفظ بعد التاني بتاخد RowVersion قديمة فتطيح بـ
+        // DbUpdateConcurrencyException. هنا نعيد تحميل القيم الحالية ونعيد
+        // المحاولة بدل ما نفشل الطلب كامل
         private async Task RecomputeAppointmentPrice(Guid appointmentId)
         {
-            var visitTypesSum = await _db.AppointmentVisitTypes
-                .Where(v => v.AppointmentId == appointmentId)
-                .SumAsync(v => v.Price);
-            var proceduresSum = await _db.VisitProcedureItems
-                .Where(p => p.AppointmentId == appointmentId)
-                .SumAsync(p => p.Price ?? 0);
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                var visitTypesSum = await _db.AppointmentVisitTypes
+                    .Where(v => v.AppointmentId == appointmentId)
+                    .SumAsync(v => v.Price);
+                var proceduresSum = await _db.VisitProcedureItems
+                    .Where(p => p.AppointmentId == appointmentId)
+                    .SumAsync(p => p.Price ?? 0);
 
-            var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == appointmentId);
-            if (appointment != null)
+                var appointment = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == appointmentId);
+                if (appointment == null) return;
                 appointment.Price = visitTypesSum + proceduresSum;
+
+                try
+                {
+                    await _db.SaveChangesAsync();
+                    return;
+                }
+                catch (DbUpdateConcurrencyException ex)
+                {
+                    foreach (var entry in ex.Entries)
+                        await entry.ReloadAsync();
+                }
+            }
         }
 
         // GET: api/appointments/{id}/procedures
@@ -1174,8 +1194,8 @@ namespace ClinicSaaS.API.Controllers
             // ✅ لازم يترتب بعد الحفظ أعلاه — RecomputeAppointmentPrice يستعلم عن
             // VisitProcedureItems من الداتابيز مباشرة، فلو حسبنا قبل الحفظ ما كان
             // يشمل هذا الإجراء نفسه (السعر يرجع بدون هذا البند بدل المبلغ الحقيقي)
+            // (الدالة نفسها تحفظ التغيير، بما فيها إعادة المحاولة عند تعارض الـ RowVersion)
             await RecomputeAppointmentPrice(id);
-            await _db.SaveChangesAsync();
 
             return Ok(new { item.Id, appointment.Price });
         }
@@ -1193,7 +1213,6 @@ namespace ClinicSaaS.API.Controllers
             _db.VisitProcedureItems.Remove(item);
             await _db.SaveChangesAsync();
             await RecomputeAppointmentPrice(appointmentId);
-            await _db.SaveChangesAsync();
 
             return Ok(new { message = "تم حذف الإجراء" });
         }
