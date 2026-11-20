@@ -68,8 +68,21 @@ namespace ClinicSaaS.API.Controllers
         public async Task<ActionResult> Create([FromBody] CreateStaffDto dto, [FromQuery] string lang = "ar")
         {
             if (!_clinicContext.HasPermission("staff.manage")) return Forbid();
-            if (_clinicContext.ClinicId == null) return Unauthorized();
-            var clinicId = _clinicContext.ClinicId.Value;
+
+            // ✅ SuperAdmin ما إله ClinicId خاص فيه — لازم يرسله صراحة (مطلوب لتدفق
+            // إنشاء العيادة تلقائياً بحسابات/بطاقات طبيب حقيقية مرتبطة من البداية)
+            Guid clinicId;
+            if (_clinicContext.IsSuperAdmin)
+            {
+                if (!dto.ClinicId.HasValue)
+                    return BadRequest(Msg(lang, "العيادة مطلوبة", "ClinicId is required"));
+                clinicId = dto.ClinicId.Value;
+            }
+            else
+            {
+                if (_clinicContext.ClinicId == null) return Unauthorized();
+                clinicId = _clinicContext.ClinicId.Value;
+            }
 
             if (string.IsNullOrWhiteSpace(dto.FullName))
                 return BadRequest(Msg(lang, "الاسم مطلوب", "Name is required"));
@@ -395,6 +408,10 @@ namespace ClinicSaaS.API.Controllers
         public string? Specialization { get; set; }
         public string? Notes { get; set; }
         public Guid? UserId { get; set; }
+
+        // ✅ جديد — SuperAdmin فقط (ما إله عيادة خاصة فيه)، يحدد صراحة لأي عيادة
+        // ينشئ الموظف؛ لغيره يُتجاهل ويُستخدم سياق عيادته الحالي دائماً
+        public Guid? ClinicId { get; set; }
 
         // ✅ جديد — "هل هذا الشخص طبيب؟"
         public bool IsDoctor { get; set; } = false;
