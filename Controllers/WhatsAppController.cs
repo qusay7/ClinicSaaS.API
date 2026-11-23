@@ -41,7 +41,10 @@ namespace ClinicSaaS.API.Controllers
 
             // ✅ نخزّن آخر حالة معروفة محلياً — SendWhatsApp يعتمد عليها ليتجنب
             // محاولة الاتصال بالخدمة إطلاقاً لو العيادة غير متصلة
-            var isConnected = status == "connected";
+            // 🐛 كانت تقارن بـ"connected" — لكن خدمة الواتساب (Node) والفرونت اند
+            // يستخدمان "open" كقيمة الحالة عند النجاح، فهذا العلم ما كان يتفعّل
+            // true أبداً لأي عيادة، وكل رسالة كانت تُرفض بصمت من هذا الفحص
+            var isConnected = status == "open";
             await _db.Clinics
                 .Where(c => c.Id == _clinicContext.ClinicId.Value && c.WhatsAppConnected != isConnected)
                 .ExecuteUpdateAsync(s => s.SetProperty(c => c.WhatsAppConnected, isConnected));
