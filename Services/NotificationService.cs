@@ -67,7 +67,9 @@ namespace ClinicSaaS.API.Services
 
 
 
-                var msg = $"""
+                var msg = PickVariant(new[]
+                {
+            $"""
             🔄 *تم تعديل موعدك*
 
             مرحباً {patient.FullName}،
@@ -83,7 +85,29 @@ namespace ClinicSaaS.API.Services
 
             يرجى الالتزام بالموعد الجديد.
             نراك قريباً 🌟
-            """;
+            """,
+            $"""
+            مرحباً {patient.FullName} 👋
+
+            نود إعلامك بتعديل موعدك في {clinic?.Name ?? "العيادة"}.
+
+            📅 الموعد الجديد: {localTime:dd/MM/yyyy} - {localTime:hh:mm tt}
+            👨‍⚕️ مع الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+            بانتظارك بالوقت الجديد ✅
+            """,
+            $"""
+            {patient.FullName}،
+
+            تم تحديث موعدك بنجاح ✏️
+
+            🗓️ {localTime:dd/MM/yyyy} عند {localTime:hh:mm tt}
+            👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+            🏥 {clinic?.Name ?? "العيادة"}
+
+            نراك بالموعد الجديد 🌟
+            """,
+                });
 
                 var phone = NormalizePhone(patient.Phone);
 
@@ -360,7 +384,9 @@ namespace ClinicSaaS.API.Services
                 var localTime =
                     ToJordanTime(appointment.AppointmentDate);
 
-                var msg = $"""
+                var msg = PickVariant(new[]
+                {
+                    $"""
                     🏥 *{clinic?.Name ?? "العيادة"}*
 
                     مرحباً {patient.FullName}،
@@ -374,7 +400,29 @@ namespace ClinicSaaS.API.Services
                     نراك قريباً 🌟
 
                     للإلغاء أو التعديل يرجى الاتصال بنا.
-                    """;
+                    """,
+                    $"""
+                    مرحباً {patient.FullName} 👋
+
+                    حجزك في {clinic?.Name ?? "العيادة"} تم تأكيده بنجاح.
+
+                    📅 {localTime:dd/MM/yyyy}  🕐 {localTime:hh:mm tt}
+                    👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                    نتشرف بزيارتك 🌟
+                    للإلغاء أو التعديل تواصل معنا.
+                    """,
+                    $"""
+                    {patient.FullName}، تم تأكيد حجزك ✅
+
+                    🏥 {clinic?.Name ?? "العيادة"}
+                    📅 التاريخ: {localTime:dd/MM/yyyy}
+                    🕐 الوقت: {localTime:hh:mm tt}
+                    👨‍⚕️ مع الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                    بانتظارك 🌟 (للتعديل أو الإلغاء يرجى الاتصال بنا)
+                    """,
+                });
 
                 var phone = NormalizePhone(patient.Phone);
 
@@ -434,7 +482,9 @@ namespace ClinicSaaS.API.Services
                     return $"جلسة {s.SessionNumber}: {local:dd/MM/yyyy} - {local:hh:mm tt}";
                 }));
 
-                var msg = $"""
+                var msg = PickVariant(new[]
+                {
+                    $"""
                     🏥 *{clinic?.Name ?? "العيادة"}*
 
                     مرحباً {patient.FullName}،
@@ -446,7 +496,30 @@ namespace ClinicSaaS.API.Services
                     ⚠️ هذه مواعيد مبدئية، ويمكن تعديل أي جلسة لاحقاً حسب ظروفكم — تواصلوا معنا لأي تغيير.
 
                     نراك قريباً 🌟
-                    """;
+                    """,
+                    $"""
+                    مرحباً {patient.FullName} 👋
+
+                    تم حجز خطة "{templateName}" وعدد جلساتها {ordered.Count} في {clinic?.Name ?? "العيادة"}:
+
+                    {sessionsList}
+
+                    ⚠️ المواعيد أعلاه مبدئية ويمكن تعديل أي جلسة لاحقاً — تواصلوا معنا لأي تغيير.
+
+                    بانتظاركم 🌟
+                    """,
+                    $"""
+                    {patient.FullName}،
+
+                    خطة العلاج "{templateName}" ({ordered.Count} جلسات) تم حجزها بنجاح ✅
+
+                    {sessionsList}
+
+                    ⚠️ يمكن تعديل أي موعد من المواعيد أعلاه لاحقاً حسب ظروفكم.
+
+                    🏥 {clinic?.Name ?? "العيادة"} — نراك قريباً 🌟
+                    """,
+                });
 
                 var phone = NormalizePhone(patient.Phone);
                 var success = await SendWhatsApp(phone, msg, clinicId);
@@ -509,7 +582,9 @@ namespace ClinicSaaS.API.Services
                 var localTime =
                     ToJordanTime(appointment.AppointmentDate);
 
-                var msg = $"""
+                var msg = PickVariant(new[]
+                {
+                    $"""
                     ❌ *إلغاء الموعد*
 
                     {patient.FullName}،
@@ -524,7 +599,27 @@ namespace ClinicSaaS.API.Services
                     يرجى الاتصال بنا.
 
                     🏥 {clinic?.Name ?? "العيادة"}
-                    """;
+                    """,
+                    $"""
+                    مرحباً {patient.FullName}،
+
+                    تم إلغاء موعدك في {clinic?.Name ?? "العيادة"} بنجاح ❌
+
+                    📅 الموعد الملغي: {localTime:dd/MM/yyyy} - {localTime:hh:mm tt}
+                    👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                    لحجز موعد جديد، يرجى التواصل معنا 📞
+                    """,
+                    $"""
+                    {patient.FullName}، تم إلغاء موعدك 🚫
+
+                    🏥 {clinic?.Name ?? "العيادة"}
+                    📅 {localTime:dd/MM/yyyy} عند {localTime:hh:mm tt}
+                    👨‍⚕️ مع: {appointment.Doctor?.FullName ?? "—"}
+
+                    للحجز مرة أخرى، تواصلوا معنا.
+                    """,
+                });
 
                 var phone = NormalizePhone(patient.Phone);
 
@@ -652,7 +747,9 @@ namespace ClinicSaaS.API.Services
                     NormalizePhone(
                         appointment.Patient.Phone);
 
-                var msg = $"""
+                var msg = PickVariant(new[]
+                {
+                    $"""
                     ⏰ *تذكير الموعد*
 
                     {appointment.Patient.FullName}،
@@ -666,7 +763,29 @@ namespace ClinicSaaS.API.Services
 
                     يرجى تأكيد حضورك ✅
                     أو إلغاء الموعد إذا لزم الأمر.
-                    """;
+                    """,
+                    $"""
+                    مرحباً {appointment.Patient.FullName} 👋
+
+                    تذكير: موعدك بعد {hoursBeforeAppointment} ساعة تقريباً في {appointment.Clinic?.Name ?? "العيادة"}.
+
+                    📅 {appointmentLocalTime:dd/MM/yyyy}  🕐 {appointmentLocalTime:hh:mm tt}
+                    👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                    نرجو تأكيد الحضور أو إعلامنا بالإلغاء 🙏
+                    """,
+                    $"""
+                    {appointment.Patient.FullName}،
+
+                    ⏳ باقي {hoursBeforeAppointment} ساعة على موعدك.
+
+                    🏥 {appointment.Clinic?.Name ?? "العيادة"}
+                    📅 {appointmentLocalTime:dd/MM/yyyy} - {appointmentLocalTime:hh:mm tt}
+                    👨‍⚕️ مع: {appointment.Doctor?.FullName ?? "—"}
+
+                    بانتظار تأكيدكم ✅
+                    """,
+                });
 
                 var success = await SendWhatsApp(
      phone,
@@ -822,7 +941,9 @@ namespace ClinicSaaS.API.Services
                         NormalizePhone(
                             appointment.Patient.Phone);
 
-                    var msg = $"""
+                    var msg = PickVariant(new[]
+                    {
+                        $"""
                         🔔 *تذكير بموعدك غداً*
 
                         {appointment.Patient.FullName}،
@@ -835,7 +956,29 @@ namespace ClinicSaaS.API.Services
                         👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
 
                         يرجى الحضور قبل 10 دقائق ⏰
-                        """;
+                        """,
+                        $"""
+                        مرحباً {appointment.Patient.FullName} 👋
+
+                        تذكير: لديك موعد غداً في {appointment.Clinic?.Name ?? "العيادة"}.
+
+                        📅 {localTime:dd/MM/yyyy}  🕐 {localTime:hh:mm tt}
+                        👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                        نرجو الحضور قبل الموعد بـ10 دقائق ⏰
+                        """,
+                        $"""
+                        {appointment.Patient.FullName}،
+
+                        🗓️ غداً موعدك المرتقب.
+
+                        🏥 {appointment.Clinic?.Name ?? "العيادة"}
+                        📅 {localTime:dd/MM/yyyy} عند {localTime:hh:mm tt}
+                        👨‍⚕️ مع: {appointment.Doctor?.FullName ?? "—"}
+
+                        نراكم قريباً 🌟
+                        """,
+                    });
 
                     var success = await SendWhatsApp(
                         phone,
@@ -937,7 +1080,9 @@ namespace ClinicSaaS.API.Services
                         NormalizePhone(
                             appointment.Patient.Phone);
 
-                    var msg = $"""
+                    var msg = PickVariant(new[]
+                    {
+                        $"""
                         ⏰ *موعدك بعد ساعة!*
 
                         {appointment.Patient.FullName}،
@@ -951,7 +1096,29 @@ namespace ClinicSaaS.API.Services
                         👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
 
                         في انتظارك 🌟
-                        """;
+                        """,
+                        $"""
+                        مرحباً {appointment.Patient.FullName} 👋
+
+                        باقي ساعة تقريباً على موعدك في {appointment.Clinic?.Name ?? "العيادة"}.
+
+                        📅 {localTime:dd/MM/yyyy}  🕐 {localTime:hh:mm tt}
+                        👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                        نراك بعد قليل ⏰
+                        """,
+                        $"""
+                        {appointment.Patient.FullName}،
+
+                        ⏰ موعدك قريب جداً — بعد حوالي ساعة.
+
+                        🏥 {appointment.Clinic?.Name ?? "العيادة"}
+                        📅 {localTime:dd/MM/yyyy} - {localTime:hh:mm tt}
+                        👨‍⚕️ مع: {appointment.Doctor?.FullName ?? "—"}
+
+                        في انتظارك 🌟
+                        """,
+                    });
 
                     var success = await SendWhatsApp(
                         phone,
@@ -1055,7 +1222,9 @@ namespace ClinicSaaS.API.Services
                         NormalizePhone(
                             appointment.Patient.Phone);
 
-                    var msg = $"""
+                    var msg = PickVariant(new[]
+                    {
+                        $"""
                         ⏰ *تذكير بموعدك بعد 12 ساعة*
 
                         {appointment.Patient.FullName}،
@@ -1069,7 +1238,29 @@ namespace ClinicSaaS.API.Services
                         👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
 
                         نراك قريباً 🌟
-                        """;
+                        """,
+                        $"""
+                        مرحباً {appointment.Patient.FullName} 👋
+
+                        تذكير: موعدك بعد 12 ساعة تقريباً في {appointment.Clinic?.Name ?? "العيادة"}.
+
+                        📅 {localTime:dd/MM/yyyy}  🕐 {localTime:hh:mm tt}
+                        👨‍⚕️ الطبيب: {appointment.Doctor?.FullName ?? "—"}
+
+                        بانتظارك 🌟
+                        """,
+                        $"""
+                        {appointment.Patient.FullName}،
+
+                        🕐 باقي حوالي 12 ساعة على موعدك.
+
+                        🏥 {appointment.Clinic?.Name ?? "العيادة"}
+                        📅 {localTime:dd/MM/yyyy} عند {localTime:hh:mm tt}
+                        👨‍⚕️ مع: {appointment.Doctor?.FullName ?? "—"}
+
+                        نراكم قريباً 🌟
+                        """,
+                    });
 
                     var success = await SendWhatsApp(
                         phone,
@@ -1308,6 +1499,16 @@ namespace ClinicSaaS.API.Services
         // ══════════════════════════════════════════════════════
         // تنسيق رقم الهاتف الأردني
         // ══════════════════════════════════════════════════════
+
+        // ══════════════════════════════════════════════════════
+        // تنويع نص الرسائل — رسائل متطابقة حرفياً لأعداد كبيرة من الأرقام
+        // هي من أوضح أنماط السبام لخوارزميات واتساب لمكافحة البوتات (قد
+        // تؤدي لحظر الحساب)؛ اختيار نسخة عشوائية من عدة صياغات لكل نوع
+        // إشعار يقلل هذا النمط دون تغيير المعلومة الأساسية بالرسالة
+        // ══════════════════════════════════════════════════════
+
+        private static string PickVariant(string[] variants) =>
+            variants[Random.Shared.Next(variants.Length)];
 
         private static string NormalizePhone(string phone)
         {
