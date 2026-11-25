@@ -7,7 +7,7 @@
         public Guid Id { get; set; }
         public Guid PatientId { get; set; }
         public string PatientName { get; set; } = default!; // اسم المريض مباشرة
-        public int PatientNumber { get; set; }              // رقم المريض
+        public long PatientNumber { get; set; }              // رقم المريض
         public DateTime AppointmentDate { get; set; }
         public Guid? DoctorId { get; set; }
         public string? DoctorName { get; set; }

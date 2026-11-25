@@ -7,7 +7,8 @@
     {
         // ✅ اختياري — النموذج يعرض رقماً مقترحاً تلقائياً (GET next-number)
         // قابل للتعديل من المستخدم قبل الحفظ؛ لو ما أُرسل، النظام يولّده تلقائياً
-        public int? PatientNumber { get; set; }
+        // long لدعم أرقام حتى 14 خانة (مطابقة لأرقام ملفات ورقية قديمة أطول من int)
+        public long? PatientNumber { get; set; }
         public string FullName { get; set; } = default!;
         public DateTime? DateOfBirth { get; set; }
         public string? Phone { get; set; }

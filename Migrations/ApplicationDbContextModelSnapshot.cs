@@ -1497,8 +1497,8 @@ namespace ClinicSaaS.API.Migrations
                     b.Property<string>("Occupation")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int>("PatientNumber")
-                        .HasColumnType("int");
+                    b.Property<long>("PatientNumber")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Phone")
                         .HasColumnType("nvarchar(max)");

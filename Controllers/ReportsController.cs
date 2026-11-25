@@ -1020,6 +1020,7 @@ namespace ClinicSaaS.API.Controllers
 				patientsQuery = patientsQuery.Where(p =>
 					p.FullName.Contains(search) ||
 					(p.Phone != null && p.Phone.Contains(search)) ||
+					(p.NationalId != null && p.NationalId.Contains(search)) ||
 					p.PatientNumber.ToString().Contains(search));
 
 			var total = await patientsQuery.CountAsync();

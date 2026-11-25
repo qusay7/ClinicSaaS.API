@@ -536,7 +536,7 @@ namespace ClinicSaaS.API.Data
     public class Patient : IAuditable
     {
         public Guid Id { get; set; }
-        public int PatientNumber { get; set; }
+        public long PatientNumber { get; set; }
         public string? NationalId { get; set; }
         public string FullName { get; set; } = default!;
         public DateTime? DateOfBirth { get; set; }
