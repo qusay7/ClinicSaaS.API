@@ -233,15 +233,19 @@ namespace ClinicSaaS.API.Controllers
         // فأي استثناء غير مُعالَج هنا يصبح exception غير مُلاحَظ على thread منفصل
         private async Task SendWelcomeEmailSafe(string toEmail, string clinicName, string subdomain, string username, string password, DateTime trialEndsAt, string lang)
         {
+            // ✅ رسائل تشخيص بالإنجليزية فقط (بدون عربي) — عشان يسهل البحث عنها
+            // بسجلات الكونسول بدون مشاكل ترميز، لحظة تتبّع مشكلة إرسال فعلية
+            _logger.LogWarning("EMAIL_SEND_START to={Email} clinic={ClinicName}", toEmail, clinicName);
             try
             {
                 var subject = Msg(lang, $"بيانات الدخول إلى عيادتك على Cura — {clinicName}", $"Your Cura login details — {clinicName}");
                 var body = BuildWelcomeEmailHtml(clinicName, subdomain, username, password, trialEndsAt, lang);
                 await _emailService.SendAsync(toEmail, subject, body);
+                _logger.LogWarning("EMAIL_SEND_SUCCESS to={Email}", toEmail);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "فشل إرسال بريد الترحيب لعيادة {ClinicName} ({Email})", clinicName, toEmail);
+                _logger.LogError(ex, "EMAIL_SEND_FAILED to={Email} clinic={ClinicName} message={Message}", toEmail, clinicName, ex.Message);
             }
         }
 
