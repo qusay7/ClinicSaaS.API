@@ -37,6 +37,32 @@ builder.Services.AddAuthorization();
 // 📚 Swagger/OpenAPI
 // ══════════════════════════════════════
 builder.Services.AddControllers();
+
+// ✅ لو فشل تحويل الـ JSON قبل وصوله حتى لفحص النموذج (مثلاً رقم أكبر من
+// حجم int مكتوب بحقل رقمي)، الإطار الافتراضي كان يُرجع رسالة تقنية غامضة
+// (JsonException مدموجة مع "The model field is required."). نستبدلها هنا
+// برسالة واضحة بس لهذي الحالة تحديداً، وباقي أخطاء التحقق تبقى بسلوكها الافتراضي
+// ✅ PostConfigure لا Configure — الإطار نفسه يضبط قيمته الافتراضية لـ
+// InvalidModelStateResponseFactory عبر PostConfigure، وهذا دائماً يُنفَّذ بعد
+// كل استدعاءات Configure بغض النظر عن ترتيب التسجيل، فيلغي أي تعديل عليها
+// هنا لو استُخدم Configure العادي
+builder.Services.PostConfigure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        // ✅ أخطاء فشل قراءة/تحويل الـ JSON نفسه تُسجَّل بمفتاح على شكل مسار JSON
+        // ("$.patientNumber")، بعكس أخطاء التحقق العادية (مثل [Required]) اللي
+        // تُسجَّل باسم الخاصية مباشرة ("FullName") — هذا أدق من فحص Exception
+        // (اللي لا يُحفَظ دائماً بـ ModelState لهذا النوع من الأخطاء)
+        var hasJsonError = context.ModelState.Keys.Any(k => k.StartsWith("$."));
+
+        if (hasJsonError)
+            return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult("أحد الحقول يحتوي على قيمة غير صالحة أو كبيرة جداً، يرجى التحقق منها");
+
+        return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new Microsoft.AspNetCore.Mvc.ValidationProblemDetails(context.ModelState));
+    };
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
