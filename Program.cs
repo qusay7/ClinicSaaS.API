@@ -3,6 +3,8 @@ using ClinicSaaS.API.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Threading.RateLimiting;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -138,6 +140,38 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ══════════════════════════════════════
+// 🌐 Forwarded Headers — السيرفر خلف نفق Cloudflare (cloudflared) على نفس
+// الجهاز، فـHttpContext.Connection.RemoteIpAddress بدون هذا دائماً 127.0.0.1
+// (عنوان النفق المحلي)، مما يكسر أي تحديد معدل طلبات أو تسجيل IP حقيقي للجلسات
+// (AuthController.Login). نلغي قيد KnownProxies/KnownNetworks لأن القفزة
+// الوحيدة قبل Kestrel هي عملية cloudflared المحلية نفسها (موثوقة أصلاً)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// ══════════════════════════════════════
+// 🚦 Rate Limiting — حماية نقاط عامة بدون مصادقة (مثل التسجيل الذاتي) من
+// إساءة استخدام آلية بسيطة: حد عدد الطلبات من نفس IP، مش حماية ضد مستخدم
+// شرعي عادي
+// ══════════════════════════════════════
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("signup", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromHours(1),
+                QueueLimit = 0,
+            }));
+});
+
 var app = builder.Build();
 
 // ══════════════════════════════════════
@@ -214,6 +248,32 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation($"✅ إجمالي الأدوار المضافة: {totalRolesAdded}");
         }
 
+        // 5️⃣ خطة التجربة المجانية — يحتاجها api/public/signup (زر "ابدأ مجاناً")
+        var freePlanExists = await db.Plans.AnyAsync(p => p.Name == ClinicSaaS.API.Controllers.PublicSignupController.FreeTrialPlanName);
+        if (!freePlanExists)
+        {
+            db.Plans.Add(new Plan
+            {
+                Id = Guid.NewGuid(),
+                Name = ClinicSaaS.API.Controllers.PublicSignupController.FreeTrialPlanName,
+                NameEn = "Free Trial",
+                Description = "تجربة مجانية لمدة 14 يوم",
+                DescriptionEn = "A 14-day free trial",
+                MonthlyPrice = 0,
+                YearlyPrice = 0,
+                MaxUsers = 3,
+                MaxDoctors = 1,
+                MaxPatients = 50,
+                MaxDailyMessages = 20,
+                IsActive = true,
+                ShowOnPricingPage = false,
+                HasElectronicInvoicing = false,
+                HasMultipleDepartments = false,
+            });
+            await db.SaveChangesAsync();
+            logger.LogInformation("✅ تم إنشاء خطة التجربة المجانية");
+        }
+
         logger.LogInformation("✅ اكتملت تعبئة البيانات بنجاح!");
     }
     catch (Exception ex)
@@ -241,8 +301,12 @@ if (app.Environment.IsDevelopment())
 // ✅ أول middleware بالترتيب — يلف كل شي تحته عشان يلتقط أي استثناء مهما كان مصدره
 app.UseMiddleware<ClinicSaaS.API.Middleware.ErrorLoggingMiddleware>();
 
+// ✅ لازم قبل أي شيء يقرأ IP/scheme (قبل HttpsRedirection والـRate Limiter)
+app.UseForwardedHeaders();
+
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseRateLimiter();
 
 // ✅ ترتيب الـ Middleware مهم جداً!
 app.UseCors("AllowReact");
