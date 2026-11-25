@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicSaaS.API.Controllers
 {
     // ✅ نقطة عامة واحدة (بدون أي مصادقة) لزر "ابدأ مجاناً" بالموقع التسويقي —
-    // تنشئ عيادة + مدير عيادة + اشتراك تجريبي 14 يوم + الأدوار/الأقسام/قوالب
+    // تنشئ عيادة + مدير عيادة + اشتراك تجريبي 30 يوم + الأدوار/الأقسام/قوالب
     // الزيارة الافتراضية، بمعاملة واحدة، ثم تُرجع توكنات دخول جاهزة (دخول تلقائي
     // بدون الحاجة لإعادة كتابة بيانات الدخول). عمداً endpoint واحد بدل كشف
     // /clinics /users /subscriptions /roles/seed-defaults... للعامة — كل واحدة
@@ -29,7 +29,14 @@ namespace ClinicSaaS.API.Controllers
         // التطبيق (Program.cs) لو لم تكن موجودة، بدل الاعتماد على GUID ثابت
         // بالكود قد يختلف بين بيئة وأخرى
         public const string FreeTrialPlanName = "تجربة مجانية";
-        private const int TrialDays = 14;
+        private const int TrialDays = 30;
+
+        // ✅ محجوزة مسبقاً — تمنع إنشاء عيادة بنطاق فرعي قد يتعارض مع مسارات
+        // النظام نفسه (admin.cura.jo، api.cura.jo...)
+        private static readonly HashSet<string> ReservedSubdomains = new()
+        {
+            "admin", "api", "www", "app", "static", "support", "mail", "dashboard", "cura",
+        };
 
         public PublicSignupController(
             ApplicationDbContext db,
@@ -61,18 +68,24 @@ namespace ClinicSaaS.API.Controllers
             if (string.IsNullOrWhiteSpace(dto.OwnerEmail) && string.IsNullOrWhiteSpace(dto.OwnerPhone))
                 return BadRequest(Msg(lang, "أدخل بريداً إلكترونياً أو رقم هاتف للتواصل", "Enter an email or phone number"));
 
+            // ✅ رسالة واحدة موحّدة لكل أسباب رفض النطاق الفرعي (صيغة غير صالحة/محجوز/
+            // مستخدم مسبقاً) — عمداً لا نميّز "مستخدم مسبقاً" عن باقي الأسباب، حتى لا
+            // يتحوّل هذا الـ endpoint العام لأداة يتحقق بها أي شخص مجهول من وجود عيادة
+            // معيّنة (استكشاف/enumeration) بمجرد تجربة أسماء نطاقات مختلفة
+            var subdomainRejected = Msg(lang,
+                "تعذّر استخدام هذا الرابط، جرّب رابطاً آخر",
+                "This link isn't available, please try a different one");
+
             var subdomain = dto.Subdomain?.Trim().ToLower() ?? "";
             if (!System.Text.RegularExpressions.Regex.IsMatch(subdomain, "^[a-z0-9._-]+$"))
-                return BadRequest(Msg(lang,
-                    "النطاق الفرعي يجب أن يحتوي على أحرف إنجليزية وأرقام ورموز فقط",
-                    "Subdomain must contain only English letters, numbers, and symbols"));
+                return BadRequest(subdomainRejected);
 
-            if (subdomain == "admin")
-                return BadRequest(Msg(lang, "هذا النطاق الفرعي محجوز", "This subdomain is reserved"));
+            if (ReservedSubdomains.Contains(subdomain))
+                return BadRequest(subdomainRejected);
 
             var subdomainExists = await _db.Clinics.AnyAsync(c => c.Subdomain == subdomain);
             if (subdomainExists)
-                return BadRequest(Msg(lang, "النطاق الفرعي مستخدم مسبقاً", "This subdomain is already taken"));
+                return BadRequest(subdomainRejected);
 
             var freePlan = await _db.Plans.FirstOrDefaultAsync(p => p.Name == FreeTrialPlanName);
             if (freePlan == null)
@@ -94,11 +107,10 @@ namespace ClinicSaaS.API.Controllers
                 Phone = dto.OwnerPhone?.Trim(),
             };
 
-            // ✅ بيانات دخول مُولَّدة تلقائياً — نفس اتفاقية SuperAdmin → Clinics
-            // بالضبط (subdomain@CURA.com / subdomain@123)، عشان ما نحتاج تحقق بريد
-            // فعلي (العيادة ممكن تبدأ بدون بريد إلكتروني إطلاقاً، الهاتف يكفي)
+            // ✅ اسم المستخدم/البريد مبنيان على النطاق الفرعي (علني، غير سرّي أصلاً)،
+            // لكن كلمة المرور عشوائية حقيقية — غير قابلة للاستنتاج من رابط العيادة
             var username = subdomain;
-            var generatedPassword = $"{subdomain}@123";
+            var generatedPassword = PasswordGenerator.Generate();
 
             var adminUser = new User
             {
@@ -193,7 +205,7 @@ namespace ClinicSaaS.API.Controllers
             catch (DbUpdateException)
             {
                 await transaction.RollbackAsync();
-                return BadRequest(Msg(lang, "النطاق الفرعي مستخدم مسبقاً", "This subdomain is already taken"));
+                return BadRequest(subdomainRejected);
             }
             catch
             {

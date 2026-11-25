@@ -345,6 +345,25 @@ namespace ClinicSaaS.API.Controllers
             return Ok(new { clinic.IsActive });
         }
 
+        // POST: api/clinics/{id}/reset-admin-password
+        // ✅ SuperAdmin فقط — يولّد كلمة مرور عشوائية جديدة لحساب ClinicAdmin الخاص
+        // بهذه العيادة ويعرضها لحظة التوليد فقط (لا يوجد تخزين قابل للاسترجاع
+        // للقديمة — PasswordHash هاش باتجاه واحد دائماً)
+        [HttpPost("{id}/reset-admin-password")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult> ResetAdminPassword(Guid id)
+        {
+            var admin = await _db.Users.FirstOrDefaultAsync(u => u.ClinicId == id && u.Role == "ClinicAdmin" && !u.IsDeleted);
+            if (admin == null)
+                return NotFound("لا يوجد حساب مدير لهذه العيادة");
+
+            var newPassword = PasswordGenerator.Generate();
+            admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { username = admin.Username, email = admin.Email, password = newPassword });
+        }
+
         // DELETE: api/clinics/{id}
         // ✅ SuperAdmin فقط — حذف نهائي للعيادة وكل بياناتها من كل الجداول المرتبطة
         // (مرضى، مواعيد، فواتير، مستخدمون، أدوار...) — لا يوجد تراجع، ولا نسخة احتياطية
