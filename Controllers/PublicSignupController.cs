@@ -24,6 +24,8 @@ namespace ClinicSaaS.API.Controllers
         private readonly IRoleSeedingService _roleSeedingService;
         private readonly IDepartmentSeedingService _departmentSeedingService;
         private readonly ITreatmentTemplateSeedingService _treatmentTemplateSeedingService;
+        private readonly IEmailService _emailService;
+        private readonly ILogger<PublicSignupController> _logger;
 
         // ✅ اسم ثابت يحدد "خطة التجربة المجانية" — تُزرع تلقائياً عند بدء
         // التطبيق (Program.cs) لو لم تكن موجودة، بدل الاعتماد على GUID ثابت
@@ -43,13 +45,17 @@ namespace ClinicSaaS.API.Controllers
             JwtService jwtService,
             IRoleSeedingService roleSeedingService,
             IDepartmentSeedingService departmentSeedingService,
-            ITreatmentTemplateSeedingService treatmentTemplateSeedingService)
+            ITreatmentTemplateSeedingService treatmentTemplateSeedingService,
+            IEmailService emailService,
+            ILogger<PublicSignupController> logger)
         {
             _db = db;
             _jwtService = jwtService;
             _roleSeedingService = roleSeedingService;
             _departmentSeedingService = departmentSeedingService;
             _treatmentTemplateSeedingService = treatmentTemplateSeedingService;
+            _emailService = emailService;
+            _logger = logger;
         }
 
         private static string Msg(string lang, string ar, string en) => lang == "ar" ? ar : en;
@@ -180,6 +186,15 @@ namespace ClinicSaaS.API.Controllers
                     .Select(rp => rp.Permission.Name)
                     .ToListAsync();
 
+                // ✅ لا يُحجَب الدخول الفوري بانتظار البريد — نرسله بالخلفية
+                // (بدون await) فقط لو أُدخل بريد، كنسخة احتياطية من بيانات
+                // الدخول. أي فشل بالإرسال (بريد غير صحيح، SMTP غير مهيّأ...)
+                // يُسجَّل فقط ولا يؤثر على نجاح إنشاء العيادة بأي شكل
+                if (!string.IsNullOrWhiteSpace(dto.OwnerEmail))
+                {
+                    _ = SendWelcomeEmailSafe(dto.OwnerEmail.Trim(), clinic.Name, subdomain, username, generatedPassword, trialEndsAt, lang);
+                }
+
                 return Ok(new PublicSignupResponseDto
                 {
                     Token = token,
@@ -212,6 +227,49 @@ namespace ClinicSaaS.API.Controllers
                 await transaction.RollbackAsync();
                 throw;
             }
+        }
+
+        // ✅ غلاف try/catch حول الإرسال — تُستدعى بدون await عمداً (fire-and-forget)،
+        // فأي استثناء غير مُعالَج هنا يصبح exception غير مُلاحَظ على thread منفصل
+        private async Task SendWelcomeEmailSafe(string toEmail, string clinicName, string subdomain, string username, string password, DateTime trialEndsAt, string lang)
+        {
+            try
+            {
+                var subject = Msg(lang, $"بيانات الدخول إلى عيادتك على Cura — {clinicName}", $"Your Cura login details — {clinicName}");
+                var body = BuildWelcomeEmailHtml(clinicName, subdomain, username, password, trialEndsAt, lang);
+                await _emailService.SendAsync(toEmail, subject, body);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "فشل إرسال بريد الترحيب لعيادة {ClinicName} ({Email})", clinicName, toEmail);
+            }
+        }
+
+        private static string BuildWelcomeEmailHtml(string clinicName, string subdomain, string username, string password, DateTime trialEndsAt, string lang)
+        {
+            var isAr = lang == "ar";
+            var dir = isAr ? "rtl" : "ltr";
+            var title = Msg(lang, "مرحباً بك في Cura!", "Welcome to Cura!");
+            var intro = Msg(lang,
+                $"تم إنشاء عيادة \"{clinicName}\" بنجاح. بيانات الدخول:",
+                $"Your clinic \"{clinicName}\" was created successfully. Your login details:");
+            var linkLabel = Msg(lang, "الرابط", "Link");
+            var usernameLabel = Msg(lang, "اسم المستخدم", "Username");
+            var passwordLabel = Msg(lang, "كلمة المرور", "Password");
+            var trialLabel = Msg(lang, "تجربتك المجانية فعّالة حتى", "Your free trial is active until");
+            var trialDate = trialEndsAt.ToString("yyyy-MM-dd");
+
+            return $@"
+<div dir=""{dir}"" style=""font-family:Arial,sans-serif;max-width:480px;margin:0 auto;color:#2C3E3F"">
+  <h2 style=""color:#2C3E3F"">{title}</h2>
+  <p>{intro}</p>
+  <table style=""width:100%;background:#E8F0F0;border-radius:12px;padding:16px;border-collapse:collapse"">
+    <tr><td style=""padding:6px 12px;color:#6B8A8C;font-size:13px"">{linkLabel}</td><td style=""padding:6px 12px;font-weight:bold"">{subdomain}.cura.jo</td></tr>
+    <tr><td style=""padding:6px 12px;color:#6B8A8C;font-size:13px"">{usernameLabel}</td><td style=""padding:6px 12px;font-weight:bold"">{username}</td></tr>
+    <tr><td style=""padding:6px 12px;color:#6B8A8C;font-size:13px"">{passwordLabel}</td><td style=""padding:6px 12px;font-weight:bold;font-family:monospace"">{password}</td></tr>
+  </table>
+  <p style=""color:#6B8A8C;font-size:13px"">{trialLabel} {trialDate}</p>
+</div>";
         }
     }
 }

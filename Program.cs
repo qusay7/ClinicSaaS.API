@@ -117,6 +117,10 @@ builder.Services.AddHttpClient<IWhatsAppConnectionService, WhatsAppConnectionSer
     .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddScoped<IWhatsAppConnectionService, WhatsAppConnectionService>();
 builder.Services.AddHostedService<ReminderBackgroundService>();
+// ✅ Singleton — بدون أي تبعية مرتبطة بنطاق الطلب (Scoped)، فلا داعي لربطها
+// بعمر الطلب نفسه، وهذا مهم خصوصاً أنها تُستخدم بإرسال "fire-and-forget"
+// (بدون await) لا يُفترض أن يرتبط بانتهاء الطلب الذي بدأه
+builder.Services.AddSingleton<IEmailService, EmailService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IJoFotaraService, JoFotaraService>();
 builder.Services.AddScoped<IInvoiceXmlBuilder, InvoiceXmlBuilder>();
