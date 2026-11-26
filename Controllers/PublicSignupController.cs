@@ -140,11 +140,118 @@ namespace ClinicSaaS.API.Controllers
                 _db.Users.Add(adminUser);
                 await _db.SaveChangesAsync();
 
-                // ✅ ينشئ الأدوار الافتراضية ويربط adminUser.RoleId تلقائياً
-                // (RoleSeedingService.LinkUsersToRole) — لازم قبل احتساب الصلاحيات تحت
+                // ✅ طبيب + موظف استقبال جاهزان فوراً مع كل عيادة تجريبية — بدون
+                // هذا، العيادة الجديدة فارغة تماماً ولازم مدير العيادة يضيفهما
+                // يدوياً قبل أي استخدام فعلي. يملآن حصة الخطة التجريبية بالضبط
+                // (MaxUsers=3: مدير+طبيب+استقبال، MaxDoctors=1)
+                var doctorPassword = PasswordGenerator.Generate();
+                var doctorUsername = $"{subdomain}-doctor";
+                var doctorUser = new User
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true,
+                    FullName = Msg(lang, "طبيب العيادة", "Clinic Doctor"),
+                    Username = doctorUsername,
+                    Email = $"{doctorUsername}@CURA.com",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(doctorPassword),
+                    Role = "Doctor",
+                    ClinicId = clinic.Id,
+                };
+                _db.Users.Add(doctorUser);
+                await _db.SaveChangesAsync();
+
+                var doctor = new Doctor
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true,
+                    IsDeleted = false,
+                    ClinicId = clinic.Id,
+                    FullName = doctorUser.FullName,
+                    Email = doctorUser.Email,
+                    WorkType = "appointments",
+                    UserId = doctorUser.Id,
+                };
+                _db.Doctors.Add(doctor);
+                await _db.SaveChangesAsync();
+
+                _db.Staff.Add(new Staff
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true,
+                    ClinicId = clinic.Id,
+                    FullName = doctorUser.FullName,
+                    JobTitle = Msg(lang, "طبيب", "Doctor"),
+                    StaffRole = "Doctor",
+                    UserId = doctorUser.Id,
+                    DoctorId = doctor.Id,
+                });
+
+                var receptionistPassword = PasswordGenerator.Generate();
+                var receptionistUsername = $"{subdomain}-reception";
+                var receptionistUser = new User
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true,
+                    FullName = Msg(lang, "موظف الاستقبال", "Reception Staff"),
+                    Username = receptionistUsername,
+                    Email = $"{receptionistUsername}@CURA.com",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(receptionistPassword),
+                    Role = "Receptionist",
+                    ClinicId = clinic.Id,
+                };
+                _db.Users.Add(receptionistUser);
+                await _db.SaveChangesAsync();
+
+                _db.Staff.Add(new Staff
+                {
+                    Id = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true,
+                    ClinicId = clinic.Id,
+                    FullName = receptionistUser.FullName,
+                    JobTitle = Msg(lang, "استقبال", "Receptionist"),
+                    StaffRole = "Receptionist",
+                    UserId = receptionistUser.Id,
+                });
+                await _db.SaveChangesAsync();
+
+                // ✅ ينشئ الأدوار الافتراضية ويربط RoleId تلقائياً لأي مستخدم
+                // أُنشئ أعلاه بنفس العيادة (RoleSeedingService.LinkUsersToRole) —
+                // لازم قبل احتساب الصلاحيات تحت
                 await _roleSeedingService.SeedDefaultRoles(clinic.Id);
                 await _departmentSeedingService.SeedDefaultDepartments(clinic.Id);
                 await _treatmentTemplateSeedingService.SeedDefaultTemplates(clinic.Id);
+
+                // ✅ جدول دوام العيادة + الطبيب على مدار الساعة طوال أيام الأسبوع —
+                // بدونه الطبيب موجود لكن لا يظهر أي موعد متاح للحجز (GetAvailableSlots
+                // يرفض الحجز لو ما فيه صف ClinicSchedule وDoctorSchedule لنفس اليوم)
+                foreach (DayOfWeek day in Enum.GetValues(typeof(DayOfWeek)))
+                {
+                    _db.ClinicSchedules.Add(new ClinicSchedule
+                    {
+                        Id = Guid.NewGuid(),
+                        ClinicId = clinic.Id,
+                        DayOfWeek = day,
+                        OpenTime = new TimeOnly(0, 0),
+                        CloseTime = new TimeOnly(23, 59),
+                        IsActive = true,
+                    });
+                    _db.DoctorSchedules.Add(new DoctorSchedule
+                    {
+                        Id = Guid.NewGuid(),
+                        DoctorId = doctor.Id,
+                        DayOfWeek = day,
+                        StartTime = new TimeOnly(0, 0),
+                        EndTime = new TimeOnly(23, 59),
+                        SlotDuration = 30,
+                        IsActive = true,
+                    });
+                }
+                await _db.SaveChangesAsync();
 
                 var now = DateTime.UtcNow;
                 var trialEndsAt = now.AddDays(TrialDays);
@@ -215,6 +322,11 @@ namespace ClinicSaaS.API.Controllers
                     Username = username,
                     Password = generatedPassword,
                     TrialEndsAt = trialEndsAt,
+                    ExtraAccounts = new List<StaffCredentialDto>
+                    {
+                        new() { Role = Msg(lang, "طبيب", "Doctor"), Username = doctorUsername, Password = doctorPassword },
+                        new() { Role = Msg(lang, "استقبال", "Receptionist"), Username = receptionistUsername, Password = receptionistPassword },
+                    },
                 });
             }
             catch (DbUpdateException)
