@@ -1,5 +1,6 @@
-using System.Net;
-using System.Net.Mail;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
 
 namespace ClinicSaaS.API.Services
 {
@@ -8,10 +9,11 @@ namespace ClinicSaaS.API.Services
         Task SendAsync(string toEmail, string subject, string htmlBody);
     }
 
-    // ✅ إرسال SMTP بسيط — لا توجد مزوّد بريد (SendGrid/Mailgun...) بالمشروع
-    // حالياً، فاستُخدمت SmtpClient المدمجة بـ.NET بدل إضافة تبعية جديدة.
-    // بيانات الاتصال الحقيقية (Host/Username/Password) تُضاف فقط على سيرفر
-    // الإنتاج (appsettings.Production.json أو متغيرات بيئة) — هنا دائماً فاضية
+    // ✅ MailKit بدل System.Net.Mail.SmtpClient المدمجة — مايكروسوفت نفسها توصي
+    // بعدم استخدامها بمشاريع جديدة، وفعلياً فشلت مع Hostinger (STARTTLS ثم AUTH
+    // لم يُرسَل بترتيب صحيح، فرجع السيرفر "Authentication required"). بيانات
+    // الاتصال الحقيقية (Host/Username/Password) تُضاف فقط على سيرفر الإنتاج
+    // (appsettings.Development.json أو متغيرات بيئة) — هنا دائماً فاضية
     public class EmailService : IEmailService
     {
         private readonly IConfiguration _configuration;
@@ -28,7 +30,7 @@ namespace ClinicSaaS.API.Services
             var host = _configuration["EmailSettings:Host"];
             if (string.IsNullOrWhiteSpace(host))
             {
-                _logger.LogWarning("EmailSettings:Host غير مُهيّأ — تم تجاوز إرسال بريد إلى {Email}", toEmail);
+                _logger.LogWarning("EMAIL_SEND_SKIPPED EmailSettings:Host not configured, to={Email}", toEmail);
                 return;
             }
 
@@ -37,27 +39,24 @@ namespace ClinicSaaS.API.Services
             var password = _configuration["EmailSettings:Password"];
             var fromAddress = _configuration["EmailSettings:FromAddress"];
             var fromName = _configuration["EmailSettings:FromName"] ?? "Cura";
-            var enableSsl = _configuration.GetValue("EmailSettings:EnableSsl", true);
 
             if (string.IsNullOrWhiteSpace(fromAddress))
                 fromAddress = username;
 
-            using var message = new MailMessage
-            {
-                From = new MailAddress(fromAddress!, fromName),
-                Subject = subject,
-                Body = htmlBody,
-                IsBodyHtml = true,
-            };
-            message.To.Add(toEmail);
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(fromName, fromAddress));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = subject;
+            message.Body = new BodyBuilder { HtmlBody = htmlBody }.ToMessageBody();
 
-            using var client = new SmtpClient(host, port)
-            {
-                Credentials = new NetworkCredential(username, password),
-                EnableSsl = enableSsl,
-            };
-
-            await client.SendMailAsync(message);
+            using var client = new SmtpClient();
+            // ✅ Auto يختار بنفسه STARTTLS (587) أو SSL مباشر (465) حسب المنفذ،
+            // ويضمن اكتمال التشفير قبل إرسال AUTH — هذا بالضبط ما كانت
+            // SmtpClient المدمجة تفشل فيه
+            await client.ConnectAsync(host, port, SecureSocketOptions.Auto);
+            await client.AuthenticateAsync(username, password);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
         }
     }
 }
