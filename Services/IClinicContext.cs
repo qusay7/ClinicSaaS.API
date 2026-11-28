@@ -15,6 +15,11 @@
         bool HasPermission(string permission);       // ✅ أضف
         Guid? RoleId { get; }
 
+        // ✅ تحمّل بيانات العيادة/الصلاحيات من DB بشكل async — تُستدعى مرة واحدة
+        // من middleware بعد المصادقة (Program.cs)، بدل استعلامات sync كانت
+        // تُنفَّذ بالـ constructor وتحجز thread بانتظار كل استعلام
+        Task InitializeAsync();
+
         // ✅ بوابات ميزات الخطة الحالية — من نفس اشتراك العيادة النشط، لا من التوكن
         // (عشان أي تغيير بالخطة ينعكس فوراً بدون داعي لتسجيل خروج/دخول)
         bool HasElectronicInvoicing { get; }

@@ -353,6 +353,21 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 });
 
 app.UseAuthentication();
+
+// ✅ تحميل IClinicContext (صلاحيات/خطة/إعدادات العيادة) بشكل async هون — مرة
+// واحدة بكل طلب، بعد ما User.Claims صارت جاهزة من UseAuthentication وقبل ما
+// أي Controller يقرأ خصائصه. هذا بديل الكود القديم اللي كان ينفّذ نفس
+// الاستعلامات sync داخل constructor الـ ClinicContext نفسه
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated == true)
+    {
+        var clinicContext = context.RequestServices.GetRequiredService<IClinicContext>();
+        await clinicContext.InitializeAsync();
+    }
+    await next();
+});
+
 app.UseAuthorization();
 
 app.MapControllers();
